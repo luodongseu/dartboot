@@ -1,0 +1,434 @@
+library server;
+
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+import 'dart:mirrors';
+
+import 'package:logging/logging.dart';
+
+import '..//error/custom_error.dart';
+import '../annotation/annotation.dart';
+import '../bootstrap/application_context.dart';
+import '../util/string.dart';
+
+part 'request_path.dart';
+
+/// HttpServer的封装类，用于开启Http[s]服务
+///
+/// 默认端口启动在8080端口，https开启需要在config中配置
+///
+/// @author ludongseu
+class Server {
+  Logger logger = Logger('Server');
+
+  /// https
+  SecurityContext _securityContext;
+
+  /// http服务端口
+  int _port = 8080;
+
+  /// http服务
+  HttpServer _server;
+
+  /// 动态路径映射
+  List<RequestPath> _dynamicPaths = [];
+
+  /// 静态路径（不含路径变量的路由）的map，用于快速索引请求的路由
+  Map<String, List<RequestPath>> _staticPathMap = {};
+
+  /// 上下文地址
+  String _contextPath;
+
+  /// 构造函数
+  Server(List<InstanceMirror> controllers) {
+    _contextPath = ApplicationContext.instance['server']['contextPath'] ?? '/';
+    _contextPath = '$_contextPath'.replaceAll(RegExp(r'[/]{2,}'), '/');
+    _initRouter(controllers ?? []);
+  }
+
+  /// 初始化路由映射
+  _initRouter(List<InstanceMirror> controllers) {
+    controllers?.forEach((controller) {
+      RestController rc = controller.type.metadata
+          .firstWhere((m) => m.reflectee is RestController)
+          .reflectee as RestController;
+      if (null != rc) {
+        // 处理RestController基础的路由
+        String bp = rc.basePath ?? '/';
+        if (!bp.startsWith('/')) {
+          bp = '/' + bp;
+        }
+
+        // 处理method
+        Map<Symbol, MethodMirror> methods = controller.type.instanceMembers;
+        methods.forEach((s, m) {
+          bool hasHttpMethod = m.metadata.any((mm) =>
+              mm.hasReflectee &&
+              (mm.reflectee is Get ||
+                  mm.reflectee is Post ||
+                  mm.reflectee is Delete));
+          if (!hasHttpMethod) {
+            return;
+          }
+
+          Request g = m.metadata
+              .firstWhere((_m) => _m.reflectee is Request)
+              .reflectee as Request;
+          RequestPath requestPath = RequestPath()
+            ..method = g.method
+            ..basePath = bp
+            ..methodMirror = m
+            ..responseType = g.responseType
+            ..controllerMirror = controller;
+
+          // 原始路径
+          String originPath = bp;
+          if (originPath.endsWith('/') && g.path.startsWith('/')) {
+            originPath += g.path.substring(1);
+          } else if (!originPath.endsWith('/') && !g.path.startsWith('/')) {
+            originPath += '/' + g.path.substring(1);
+          } else {
+            originPath += g.path;
+          }
+          if (originPath.length > 1 && originPath.endsWith('/')) {
+            originPath = originPath.substring(0, originPath.length - 1);
+          }
+          requestPath.originPath = originPath;
+
+          // nodes节点
+          List<String> sp = originPath.substring(1).split('/');
+          bool hasVar = false;
+          String regexPath = '';
+          List<PathNode> nodes = sp.map((s) {
+            PathNode pathNode = PathNode()..text = s;
+            if (s.startsWith('{') && s.endsWith('}')) {
+              pathNode.isVar = true;
+              pathNode.varName = s.substring(1, s.length - 1);
+              hasVar = true;
+              regexPath += '/[^/]+';
+            } else {
+              regexPath += '/' + s;
+            }
+            return pathNode;
+          }).toList();
+          // 正则表达式，用于快速匹配路由
+          requestPath.regexPath = RegExp('\^' + regexPath + '\$');
+          requestPath.nodes = nodes;
+
+          if (!hasVar) {
+            // 静态路由
+            _staticPathMap[originPath] = []
+              ..addAll(_staticPathMap[originPath] ?? [])
+              ..add(requestPath);
+          } else {
+            // 动态路由
+            _dynamicPaths.add(requestPath);
+          }
+          logger.info(
+              "Bind api:[${requestPath.method?.toString()?.replaceAll('HttpMethod.', '') ?? 'GET'} $originPath] to "
+              "controller:[${requestPath.controllerMirror.type.simpleName}]");
+        });
+      }
+    });
+  }
+
+  /// 开启服务
+  ///
+  /// 绑定的端口使用启动配置中的端口，默认为8080
+  void start() async {
+    logger.info("Application start binding http server...");
+
+    // 处理容器启动的参数
+    dynamic serverConfig = ApplicationContext.instance['server'];
+    if (null != serverConfig) {
+      if (serverConfig is Map) {
+        if (serverConfig.containsKey('port')) {
+          _port = int.parse('${serverConfig['port'] ?? _port}');
+        }
+        if (serverConfig.containsKey('security')) {
+          _securityContext = SecurityContext()
+            ..useCertificateChain(
+                serverConfig['security']['certificateFilePath'])
+            ..usePrivateKey(serverConfig['security']['privateKeyFilePath']);
+        }
+      }
+    }
+
+    // 绑定端口并且启动服务监听
+    final securityContext = _securityContext;
+    if (securityContext != null) {
+      _server = await HttpServer.bindSecure(
+          InternetAddress.anyIPv4, _port, securityContext,
+          requestClientCertificate: true, v6Only: false, shared: false);
+    } else {
+      _server = await HttpServer.bind(InternetAddress.anyIPv4, _port,
+          v6Only: false, shared: false);
+    }
+//    _server.listen((request) =>
+//        runZoned(() => _receiveRequest(request), onError: (e) async {
+//          logger.severe('Request [${request.method} ${request.uri.path}] error:'
+//              ' $e');
+//          _sendError(request, CustomError(e.toString()));
+//        }));
+    _server.listen((request) => _receiveRequest(request));
+    logger.info(
+        'Application started on port:$_port and context path:[$_contextPath].');
+  }
+
+  /// 处理请求体，
+  void _receiveRequest(HttpRequest request) async {
+    String reqPath = '${request.uri.path ?? ''}'.trim();
+    logger.info('Request: [${request.method}] $reqPath');
+    if (_staticPathMap.isEmpty && _dynamicPaths.isEmpty) {
+      _send404(request);
+      return;
+    }
+
+    // 匹配图标
+    if (matchFavicon(request)) {
+      return;
+    }
+
+    // 上下文路径校验
+    if (!'$reqPath'.startsWith(_contextPath)) {
+      _send404(request);
+      return;
+    }
+
+    reqPath = reqPath.substring(_contextPath.length);
+    if (reqPath != '/') {
+      if (!reqPath.startsWith('/')) {
+        reqPath = '/' + reqPath;
+      }
+    }
+
+    // 1. 找静态路径
+    if (_staticPathMap.keys.contains(reqPath)) {
+      // 找到了全路径匹配
+      List<RequestPath> requestPaths = _staticPathMap[reqPath];
+      RequestPath backendPath = requestPaths.firstWhere(
+          (rp) =>
+              '${rp.method}'.replaceAll('HttpMethod.', '').toUpperCase() ==
+              request.method,
+          orElse: () => null);
+      if (null != backendPath) {
+        // FIND IT!!
+        _handleRequest(backendPath, reqPath, request);
+        return;
+      }
+    }
+
+    // 2. 找动态路径
+    int psNum = reqPath.substring(1).split('/').length;
+    RequestPath backendPath = _dynamicPaths.firstWhere(
+        (rp) =>
+            rp.nodes.length == psNum &&
+            '${rp.method}'.replaceAll('HttpMethod.', '').toUpperCase() ==
+                request.method &&
+            rp.regexPath.hasMatch(reqPath),
+        orElse: () => null);
+    if (null != backendPath) {
+      // FIND IT!!
+      _handleRequest(backendPath, reqPath, request);
+      return;
+    }
+
+    // 未找到路由
+    _send404(request);
+    return;
+  }
+
+  /// 处理http请求并响应
+  void _handleRequest(
+      RequestPath backendPath, String reqPath, HttpRequest request) async {
+    logger.info(
+        'Start to handle request: $reqPath with backend: $backendPath...');
+
+    // 分割后的raw path
+    List<String> reqPathSplits = [''];
+    String lp = reqPath.trim().substring(reqPath.startsWith('/') ? 1 : 0);
+    if (lp.length > 0) {
+      reqPathSplits = lp.indexOf('/') > 0 ? lp.split('/') : [lp];
+    }
+
+    // 路径变量注入值
+    Map<String, String> pathVariables = {};
+    for (var i = 0; i < reqPathSplits.length; i++) {
+      if (backendPath.nodes[i].isVar) {
+        pathVariables[backendPath.nodes[i].varName] = reqPathSplits[i];
+      }
+    }
+
+    // 处理参数
+    List<dynamic> params = List();
+    for (ParameterMirror p in backendPath.methodMirror.parameters) {
+      // HttpRequest
+      if (p.type.reflectedType == HttpRequest) {
+        params.add(request);
+        continue;
+      }
+
+      // Path
+      var value;
+      InstanceMirror pathAnnotation = p.metadata.firstWhere(
+          (pm) => pm.hasReflectee && pm.reflectee is Path,
+          orElse: () => null);
+      if (null != pathAnnotation) {
+        final String vn = (pathAnnotation.reflectee as Path).name;
+        if (pathVariables.containsKey(vn)) {
+          value = pathVariables[vn];
+        }
+        params.add(convertParameter(value, p));
+        continue;
+      }
+
+      // Query
+      InstanceMirror queryAnnotation = p.metadata.firstWhere(
+          (pm) => pm.hasReflectee && pm.reflectee is Query,
+          orElse: () => null);
+      if (null != queryAnnotation) {
+        final String vn = (queryAnnotation.reflectee as Query).name;
+        final bool required = (queryAnnotation.reflectee as Query).required;
+        bool queryExists =
+            request.uri?.queryParameters?.containsKey(vn) ?? false;
+        if (required && !queryExists) {
+          _send404(request);
+          return;
+        }
+        value = request.uri?.queryParameters[vn] ?? '';
+        params.add(convertParameter(value, p));
+        continue;
+      }
+
+      // Header
+      InstanceMirror headerAnnotation = p.metadata.firstWhere(
+          (pm) => pm.hasReflectee && pm.reflectee is Header,
+          orElse: () => null);
+      if (null != headerAnnotation) {
+        final String vn = (headerAnnotation.reflectee as Header).name;
+        String header = request.headers.value(vn);
+        params.add(convertParameter(header ?? '', p));
+        continue;
+      }
+
+      // Body
+      InstanceMirror bodyAnnotation = p.metadata.firstWhere(
+          (pm) => pm.hasReflectee && pm.reflectee is Body,
+          orElse: () => null);
+      if (null != bodyAnnotation) {
+        StringBuffer buffer = await Encoding.getByName('utf-8')
+            .decoder
+            .bind(request)
+            .fold(StringBuffer(), (buffer, data) => buffer..write(data));
+        params.add(json.decode(buffer.toString()));
+        continue;
+      }
+
+      params.add(null);
+    }
+
+    // 反射接口函数
+    dynamic data = backendPath.controllerMirror
+        .invoke(backendPath.methodMirror.simpleName, params)
+        .reflectee;
+    if (data is Future) {
+      data.then((value) => _sendResponse(request, backendPath, value));
+    } else {
+      _sendResponse(request, backendPath, data);
+    }
+  }
+
+  /// 解析参数类型
+  dynamic convertParameter(String value, ParameterMirror p) {
+    if (isEmpty(value)) {
+      return null;
+    }
+    String reflectType = p.type?.reflectedType?.toString() ?? 'String';
+    switch (reflectType) {
+      case 'int':
+        return int.parse(value);
+      case 'double':
+        return double.parse(value);
+      case 'num':
+        return num.parse(value);
+      case 'bool':
+        return value == 'true' || value == '1';
+      case 'bigint':
+        return BigInt.parse(value);
+    }
+    return value;
+  }
+
+  /// 响应404
+  ///
+  /// 接口不存在情况下会调用
+  void _send404(HttpRequest request) {
+    request.response.statusCode = HttpStatus.notFound;
+    request.response.headers.add('Content-Type', 'text/html');
+    request.response.add('<h1>404</h1><h3>Not found.</h3>'.codeUnits);
+    request.response.close();
+
+    logger.severe('Resource not found: ${request.uri.path}');
+  }
+
+  /// 响应500
+  ///
+  /// 接口调用失败会响应
+  void _sendError(HttpRequest request, CustomError error) {
+    request.response.statusCode = HttpStatus.internalServerError;
+    request.response.headers.add('Content-Type', 'text/html');
+    request.response
+        .add(utf8.encode('<h1>500</h1><h3>${error ?? 'Internal error.'}</h3>'));
+    request.response.close();
+
+    logger.severe('Response to: ${request.uri.path} error: $error');
+  }
+
+  /// 响应200和json格式的内容
+  void _sendResponse(
+      HttpRequest request, RequestPath requestPath, dynamic data) {
+    request.response.statusCode = HttpStatus.ok;
+    String contentType;
+    dynamic body = '';
+    switch (requestPath.responseType) {
+      case ResponseType.html:
+        contentType = 'text/html';
+        body = data;
+        break;
+      case ResponseType.text:
+        contentType = 'text/plain';
+        body = data;
+        break;
+      case ResponseType.json:
+      default:
+        contentType = 'application/json';
+        body = json.encode(data ?? {});
+        break;
+    }
+    request.response.headers
+        .add('Content-type', contentType + ';charset=UTF-8');
+    request.response.add(utf8.encode(body ?? ''));
+    request.response.close();
+  }
+
+  /// 匹配favicon
+  bool matchFavicon(HttpRequest request) {
+    if (request.uri?.path == '/favicon.ico') {
+      File iconFile = File('public/favicon.ico');
+      if (iconFile.existsSync()) {
+        request.response.headers.contentType = ContentType.binary;
+        try {
+          request.response.addStream(iconFile.openRead());
+        } catch (e) {
+          print(e);
+          _sendError(request, CustomError('无法读取文件信息'));
+        }
+      } else {
+        _send404(request);
+      }
+      return true;
+    }
+    return false;
+  }
+}
