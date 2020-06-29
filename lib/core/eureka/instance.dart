@@ -22,7 +22,7 @@ class App {
 
 /// Eureka客户端实例对象
 ///
-/// @author luodong
+/// @author luodongseu
 class Instance {
   /// 实例ID
   final String instanceId;

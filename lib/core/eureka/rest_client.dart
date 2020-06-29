@@ -14,7 +14,7 @@ import 'runner.dart';
 ///
 /// 用于调用微服务（带负载均衡）的工具
 ///
-/// @author luodong
+/// @author luodongseu
 class EurekaRestClient {
   Log logger = Log('EurekaRestClient');
 

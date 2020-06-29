@@ -34,7 +34,7 @@ const Duration defaultConnectionTimeout = const Duration(seconds: 5);
 /// MysqlClientPool.create().then((p) => pool = p);
 /// ```
 ///
-/// @author luodong
+/// @author luodongseu
 class MysqlClientPool {
   Log logger = Log('MysqlClientPool');
 

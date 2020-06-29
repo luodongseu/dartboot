@@ -1,7 +1,7 @@
 import '../core/annotation/annotation.dart';
 import '../core/database/mysql_pool.dart';
 import '../core/log/logger.dart';
-import '../feign/self_feign_client.dart';
+import '../feign/feign_clients.dart';
 
 /// RestController 接口示例
 ///

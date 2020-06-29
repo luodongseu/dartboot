@@ -12,7 +12,7 @@ const Duration shutdownDelay = Duration(seconds: 10);
 /// 1. 关闭客户端
 /// 2. 注册客户端
 ///
-/// @author luodong
+/// @author luodongseu
 @RestController()
 class EurekaClientEndpoint {
   /// 关闭订阅
