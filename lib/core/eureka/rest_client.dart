@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:dio/dio.dart';
 
-import '..//error/custom_error.dart';
+import '../error/custom_error.dart';
 import '../log/logger.dart';
 import '../util/string.dart';
 import 'client.dart';
@@ -67,7 +67,8 @@ class EurekaRestClient {
     CancelToken cancelToken,
     ProgressCallback onReceiveProgress,
   }) async {
-    loadAppAndLoadBalancerIfNeed();
+    if (!loadAppAndLoadBalancerIfNeed())
+      throw CustomError('未找到对应的服务[id=$serviceId]');
     return _loadBalancer?.run(
       path,
       queryParameters: queryParameters,
@@ -87,7 +88,8 @@ class EurekaRestClient {
     ProgressCallback onSendProgress,
     ProgressCallback onReceiveProgress,
   }) async {
-    loadAppAndLoadBalancerIfNeed();
+    if (!loadAppAndLoadBalancerIfNeed())
+      throw CustomError('未找到对应的服务[id=$serviceId]');
     return _loadBalancer?.run(
       path,
       data: data,
@@ -109,7 +111,8 @@ class EurekaRestClient {
     ProgressCallback onSendProgress,
     ProgressCallback onReceiveProgress,
   }) async {
-    loadAppAndLoadBalancerIfNeed();
+    if (!loadAppAndLoadBalancerIfNeed())
+      throw CustomError('未找到对应的服务[id=$serviceId]');
     return _loadBalancer?.run(
       path,
       data: data,
@@ -129,7 +132,8 @@ class EurekaRestClient {
     Options options,
     CancelToken cancelToken,
   }) async {
-    loadAppAndLoadBalancerIfNeed();
+    if (!loadAppAndLoadBalancerIfNeed())
+      throw CustomError('未找到对应的服务[id=$serviceId]');
     return _loadBalancer?.run(
       path,
       data: data,
@@ -147,7 +151,8 @@ class EurekaRestClient {
     Options options,
     CancelToken cancelToken,
   }) async {
-    loadAppAndLoadBalancerIfNeed();
+    if (!loadAppAndLoadBalancerIfNeed())
+      throw CustomError('未找到对应的服务[id=$serviceId]');
     return _loadBalancer?.run(
       path,
       data: data,
@@ -167,7 +172,8 @@ class EurekaRestClient {
     ProgressCallback onSendProgress,
     ProgressCallback onReceiveProgress,
   }) async {
-    loadAppAndLoadBalancerIfNeed();
+    if (!loadAppAndLoadBalancerIfNeed())
+      throw CustomError('未找到对应的服务[id=$serviceId]');
     return _loadBalancer?.run(
       path,
       data: data,
@@ -180,32 +186,36 @@ class EurekaRestClient {
   }
 
   /// 加载APP信息和负载均衡客户端
-  void loadAppAndLoadBalancerIfNeed({bool force = false}) {
+  bool loadAppAndLoadBalancerIfNeed({bool force = false}) {
     if (!force && null != _app) {
-      return;
+      return true;
     }
     if (null == EurekaClient.instance) {
-      throw CustomError('正在初始化...');
+      logger.warning('正在初始化...');
+      return false;
     }
     if (!EurekaClient.instance.ready) {
-      throw CustomError('正在加载服务列表...');
+      logger.warning('正在加载服务列表...');
+      return false;
     }
 
     logger.info(
-        'Start to refresh app:[$serviceId]\'s instance list and load balancer...');
+        'Start to refresh app:[id=$serviceId]\'s instance list and load balancer...');
 
     App app = EurekaClient.instance.apps.firstWhere((a) {
       return a.name?.toUpperCase() == serviceId.toUpperCase();
     }, orElse: () => null);
     if (null == app) {
-      throw CustomError('未找到目标服务');
+      logger.warning('未找到目标服务[id=$serviceId]...');
+      return false;
     }
 
     // 过滤关闭的实例
     List<Instance> _allInstances = []..addAll(app.instance);
     _allInstances.retainWhere((ins) => ins.status == 'UP');
     if (isEmpty(_allInstances)) {
-      throw CustomError('未找到目标服务可用实例');
+      logger.warning('未找到目标服务[id=$serviceId]的可用实例...');
+      return false;
     }
     _app = app;
 
@@ -225,7 +235,9 @@ class EurekaRestClient {
     }
 
     logger.info(
-        'App:[$serviceId] loaded with ${remoteHostAndPorts.length} instances: $remoteHostAndPorts]');
+        'App:[id=$serviceId] loaded with ${remoteHostAndPorts.length} instances: $remoteHostAndPorts]');
+
+    return true;
   }
 
   Options checkOptions(method, options) {
