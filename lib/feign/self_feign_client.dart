@@ -1,4 +1,4 @@
-import 'package:dartboot/core/eureka/eureka.dart';
+import '../core/eureka/eureka.dart';
 
 /// 自身的FeignClient
 class SelfFeignClient {

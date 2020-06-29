@@ -1,7 +1,7 @@
-import 'package:dartboot/core/annotation/annotation.dart';
-import 'package:dartboot/core/database/mysql_pool.dart';
-import 'package:dartboot/core/log/logger.dart';
-import 'package:dartboot/feign/self_feign_client.dart';
+import '../core/annotation/annotation.dart';
+import '../core/database/mysql_pool.dart';
+import '../core/log/logger.dart';
+import '../feign/self_feign_client.dart';
 
 /// RestController 接口示例
 ///

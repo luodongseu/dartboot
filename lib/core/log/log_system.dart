@@ -3,11 +3,11 @@ import 'dart:collection';
 import 'dart:io';
 import 'dart:isolate';
 
-import 'package:dartboot/core/bootstrap/application_context.dart';
-import 'package:dartboot/core/util/string.dart';
 import 'package:logging/logging.dart';
 
+import '../bootstrap/application_context.dart';
 import '../util/date.dart';
+import '../util/string.dart';
 import 'logger.dart';
 
 /// 默认的日志文件路径

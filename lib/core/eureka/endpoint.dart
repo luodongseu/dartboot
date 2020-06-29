@@ -1,8 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:dartboot/core/annotation/annotation.dart';
-
+import '../annotation/annotation.dart';
 import 'client.dart';
 
 /// 关闭的延时
