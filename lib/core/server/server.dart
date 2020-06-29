@@ -81,7 +81,7 @@ class Server {
         Map<Symbol, MethodMirror> methods = controller.type.instanceMembers;
         methods.forEach((s, m) {
           bool hasHttpMethod = m.metadata.any((mm) =>
-              mm.hasReflectee &&
+          mm.hasReflectee &&
               (mm.reflectee is Get ||
                   mm.reflectee is Post ||
                   mm.reflectee is Delete));
@@ -144,7 +144,7 @@ class Server {
           }
           logger.info(
               "Bind api:[${requestPath.method?.toString()?.replaceAll('HttpMethod.', '') ?? 'GET'} $originPath] to "
-              "controller:[${requestPath.controllerMirror.type.simpleName}]");
+                  "controller:[${requestPath.controllerMirror.type.simpleName}]");
         });
       }
     });
@@ -188,7 +188,11 @@ class Server {
         runZoned(() => _receiveRequest(request), onError: (e) async {
           logger.error('Request [${request.method} ${request.uri.path}] error:'
               ' $e');
-          _sendError(request, CustomError(e.toString()));
+          try {
+            _sendError(request, CustomError(e.toString()));
+          } catch (e) {
+            // ignore e
+          }
         }));
 
     // // not handle any error
@@ -201,7 +205,8 @@ class Server {
   /// 处理请求体，
   void _receiveRequest(HttpRequest request) async {
     String reqPath = '${request.uri.path ?? ''}'.trim();
-    logger.info('Request: [${request.method}] $reqPath');
+    logger.debug('Request: [${request.method}] $reqPath');
+
     if (_staticPathMap.isEmpty && _dynamicPaths.isEmpty) {
       _send404(request);
       return;
@@ -230,8 +235,8 @@ class Server {
       // 找到了全路径匹配
       List<RequestPath> requestPaths = _staticPathMap[reqPath];
       RequestPath backendPath = requestPaths.firstWhere(
-          (rp) =>
-              '${rp.method}'.replaceAll('HttpMethod.', '').toUpperCase() ==
+              (rp) =>
+          '${rp.method}'.replaceAll('HttpMethod.', '').toUpperCase() ==
               request.method,
           orElse: () => null);
       if (null != backendPath) {
@@ -244,8 +249,8 @@ class Server {
     // 2. 找动态路径
     int psNum = reqPath.substring(1).split('/').length;
     RequestPath backendPath = _dynamicPaths.firstWhere(
-        (rp) =>
-            rp.nodes.length == psNum &&
+            (rp) =>
+        rp.nodes.length == psNum &&
             '${rp.method}'.replaceAll('HttpMethod.', '').toUpperCase() ==
                 request.method &&
             rp.regexPath.hasMatch(reqPath),
@@ -264,7 +269,7 @@ class Server {
   /// 处理http请求并响应
   void _handleRequest(
       RequestPath backendPath, String reqPath, HttpRequest request) async {
-    logger.info(
+    logger.debug(
         'Start to handle request: $reqPath with backend: $backendPath...');
 
     // 分割后的raw path
@@ -294,7 +299,7 @@ class Server {
       // Path
       var value;
       InstanceMirror pathAnnotation = p.metadata.firstWhere(
-          (pm) => pm.hasReflectee && pm.reflectee is Path,
+              (pm) => pm.hasReflectee && pm.reflectee is Path,
           orElse: () => null);
       if (null != pathAnnotation) {
         final String vn = (pathAnnotation.reflectee as Path).name;
@@ -307,7 +312,7 @@ class Server {
 
       // Query
       InstanceMirror queryAnnotation = p.metadata.firstWhere(
-          (pm) => pm.hasReflectee && pm.reflectee is Query,
+              (pm) => pm.hasReflectee && pm.reflectee is Query,
           orElse: () => null);
       if (null != queryAnnotation) {
         final String vn = (queryAnnotation.reflectee as Query).name;
@@ -325,7 +330,7 @@ class Server {
 
       // Header
       InstanceMirror headerAnnotation = p.metadata.firstWhere(
-          (pm) => pm.hasReflectee && pm.reflectee is Header,
+              (pm) => pm.hasReflectee && pm.reflectee is Header,
           orElse: () => null);
       if (null != headerAnnotation) {
         final String vn = (headerAnnotation.reflectee as Header).name;
@@ -336,7 +341,7 @@ class Server {
 
       // Body
       InstanceMirror bodyAnnotation = p.metadata.firstWhere(
-          (pm) => pm.hasReflectee && pm.reflectee is Body,
+              (pm) => pm.hasReflectee && pm.reflectee is Body,
           orElse: () => null);
       if (null != bodyAnnotation) {
         StringBuffer buffer = await Encoding.getByName('utf-8')
@@ -355,7 +360,8 @@ class Server {
         .invoke(backendPath.methodMirror.simpleName, params)
         .reflectee;
     if (data is Future) {
-      data.then((value) => _sendResponse(request, backendPath, value));
+      var result = await data;
+      _sendResponse(request, backendPath, result);
     } else {
       _sendResponse(request, backendPath, data);
     }
@@ -404,7 +410,7 @@ class Server {
         .add(utf8.encode('<h1>500</h1><h3>${error ?? 'Internal error.'}</h3>'));
     request.response.close();
 
-    logger.error('Response to: ${request.uri.path} error: $error');
+    logger.debug('Response to: ${request.uri.path} error: $error');
   }
 
   /// 响应200和json格式的内容
