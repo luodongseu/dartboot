@@ -1,25 +1,28 @@
 import 'dart:async';
 
-import 'package:logging/logging.dart';
 import 'package:mysql1/mysql1.dart';
 import 'package:mysql1/src/single_connection.dart';
 
 import '../bootstrap/application_context.dart';
 import '../error/custom_error.dart';
+import '../log/logger.dart';
 import '../util/date.dart';
 import '../util/uid.dart';
 
 /// 事务的调度器
 typedef TransactionCaller = Function(TransactionContext);
 
+/// 默认测试链接周期，毫秒
+const int defaultTestQueryPeriodMills = 30 * 1000;
+
 /// 测试的timeout
-const Duration testTimeout = const Duration(seconds: 3);
+const Duration testTimeout = const Duration(milliseconds: 500);
 
 /// 默认查询timeout
 const Duration defaultQueryTimeout = const Duration(seconds: 30);
 
 /// 默认查询timeout
-const Duration defaultConnectionTimeout = const Duration(seconds: 10);
+const Duration defaultConnectionTimeout = const Duration(seconds: 5);
 
 /// Mysql客户端的线程池
 ///
@@ -33,7 +36,7 @@ const Duration defaultConnectionTimeout = const Duration(seconds: 10);
 ///
 /// @author luodong
 class MysqlClientPool {
-  Logger logger = Logger('MysqlClientPool');
+  Log logger = Log('MysqlClientPool');
 
   /// IP地址
   final String host;
@@ -63,10 +66,10 @@ class MysqlClientPool {
   final Duration queryTimeout;
 
   /// 看门狗的定时器
-  Timer _watchDogTimer;
+  Timer _testTimer;
 
   /// 看门狗的定时间隔
-  final Duration _watchDogInterval = const Duration(milliseconds: 300);
+  Duration _testQueryPeriodDuration;
 
   /// 连接池
   List<MySqlConnection2> _pool = [];
@@ -89,7 +92,9 @@ class MysqlClientPool {
           username: mysqlConfig['username'],
           password: mysqlConfig['password'],
           minSize: int.parse('${mysqlConfig['minPoolSize'] ?? 5}'),
-          maxSize: int.parse('${mysqlConfig['maxPoolSize'] ?? 30}'));
+          maxSize: int.parse('${mysqlConfig['maxPoolSize'] ?? 30}'),
+          testQueryPeriodMills:
+              int.parse('${mysqlConfig['testQueryPeriodMills'] ?? 30000}'));
     }
     return null;
   }
@@ -117,55 +122,65 @@ class MysqlClientPool {
       this.minSize = 5,
       this.maxSize = 30,
       this.queryTimeout,
+      int testQueryPeriodMills = defaultTestQueryPeriodMills,
       this.testSql = 'select 1'}) {
     assert(minSize > 0, 'Min pool size must greater than zero');
     assert(maxSize > minSize, 'Max pool size must greater than min pool size');
+    assert(testQueryPeriodMills > 1000,
+        'Test query period must greater than 1 second');
+    _testQueryPeriodDuration = Duration(milliseconds: testQueryPeriodMills);
     init();
   }
 
   /// 初始化
   init() async {
     // 填充连接池
-    fillPool();
+    _fillPool();
 
     // 添加看门狗
-    initWatchDog();
+    _initTestTimer();
   }
 
   /// 创建新的连接，并且将连接添加到连接池中
-  Future<MySqlConnection2> createConnectionAndAdd2Pool() async {
+  Future<MySqlConnection2> _createConnectionAndAdd2Pool() async {
     MySqlConnection2 c = await createConnection();
     _pool.add(c);
     return c;
   }
 
-  /// 初始化看门狗，主要负责定时检查连接池中的连接是否正常，如果已断开，则标记连接被移除
-  initWatchDog() {
-    if (null != _watchDogTimer) {
-      _watchDogTimer.cancel();
+  /// 初始化看门狗
+  ///
+  /// 定时检查连接池中空闲的连接是否可用
+  /// 如果已断开，则标记连接被移除，并清理连接池
+  _initTestTimer() {
+    if (null != _testTimer) {
+      _testTimer.cancel();
     }
-    _watchDogTimer = Timer.periodic(_watchDogInterval, (t) async {
-      // 是否有移除的连接
-      bool hasRemovedConnection = false;
-      List cs =
-          _pool.where((c) => c.state != ConnectionState.STATE_REMOVED).toList();
-      for (var i = 0; i < cs.length; i++) {
-        bool isAlive = await isConnectionAlive(cs[i]);
-        if (!isAlive) {
-          // 已经断开了
-          cs[i].state = ConnectionState.STATE_REMOVED;
-          hasRemovedConnection = true;
+    _testTimer = Timer.periodic(_testQueryPeriodDuration, (t) {
+      Future.sync(() async {
+        // 是否有移除的连接
+        List cs = _pool
+            .where((c) => c.state == ConnectionState.STATE_NOT_IN_USE)
+            .toList();
+        for (var i = 0; i < cs.length; i++) {
+          bool isAlive = await isConnectionAlive(cs[i]);
+          if (!isAlive) {
+            // 已经断开了
+            cs[i].state = ConnectionState.STATE_REMOVED;
+          }
         }
-      }
 
-      if (hasRemovedConnection) {
-        await cleanPool();
-      }
+        if (cs.any((c) => c.state == ConnectionState.STATE_REMOVED)) {
+          await _cleanPool();
+        }
+      });
     });
   }
 
   /// 清理连接池
-  cleanPool() async {
+  ///
+  /// 清理后执行填充操作
+  _cleanPool() async {
     List<int> removeIndex = [];
     for (var i = 0; i < _pool.length; i++) {
       if (_pool[i].state == ConnectionState.STATE_REMOVED) {
@@ -175,13 +190,13 @@ class MysqlClientPool {
     removeIndex.forEach((i) => _pool.removeAt(i));
 
     // 填充连接池
-    fillPool();
+    _fillPool();
   }
 
   /// 填充连接池到[minSize]大小
-  fillPool() async {
+  _fillPool() async {
     while (_pool.length < minSize) {
-      await createConnectionAndAdd2Pool();
+      await _createConnectionAndAdd2Pool();
     }
   }
 
@@ -238,7 +253,7 @@ class MysqlClientPool {
     });
 
     // log time used
-    logger.finer('Get connection in ${now - s} mills.');
+    logger.debug('Get connection in ${now - s} mills.');
 
     return c;
   }
@@ -260,7 +275,7 @@ class MysqlClientPool {
       return c;
     }
     // scale
-    return await createConnectionAndAdd2Pool();
+    return await _createConnectionAndAdd2Pool();
   }
 
   /// 判断连接是否存活
@@ -309,7 +324,7 @@ enum ConnectionState {
 ///
 /// busy -> 用于判断是否在执行sql
 class MySqlConnection2 {
-  Logger logger = Logger('MySqlConnection2');
+  Log logger = Log('MySqlConnection2');
 
   /// 连接的状态
   ConnectionState _state = ConnectionState.STATE_NOT_IN_USE;
@@ -339,13 +354,13 @@ class MySqlConnection2 {
 
   /// 查询单个数据
   Future<Results> query(String sql, [List<Object> values]) async {
-    logger.fine('## Sql execution: [${sql}]');
+    logger.debug('## Sql execution: [${sql}]');
     var id = uid8;
     _executingIds.add(id);
     try {
       return await connection?.query(sql, values);
     } catch (e) {
-      logger.finest('## Sql execution: [${sql}] error: $e');
+      logger.error('## Sql execution: [${sql}] error: $e');
       throw CustomError('Execute sql: [$sql] failed. $e');
     } finally {
       release(id);
@@ -355,13 +370,13 @@ class MySqlConnection2 {
   /// 查询结果集
   Future<List<Results>> queryMulti(
       String sql, Iterable<List<Object>> values) async {
-    logger.fine('## Sql execution: [${sql}]');
+    logger.debug('## Sql execution: [${sql}]');
     var id = uid8;
     _executingIds.add(id);
     try {
       return await connection?.queryMulti(sql, values);
     } catch (e) {
-      logger.finest('## Sql execution: [${sql}] error: $e');
+      logger.error('## Sql execution: [${sql}] error: $e');
       throw CustomError('Execute sql: [$sql] failed. $e');
     } finally {
       release(id);
@@ -375,12 +390,12 @@ class MySqlConnection2 {
     var id = uid8;
     _executingIds.add(id);
     try {
-      logger.finer('## Sql transaction[$id] execution start ...');
+      logger.debug('## Sql transaction[$id] execution start ...');
       Future r = await connection?.transaction(caller);
-      logger.finer('## Sql transaction[$id] execution end.');
+      logger.debug('## Sql transaction[$id] execution end.');
       return r;
     } catch (e) {
-      logger.finest('## Sql execution: [${id}] error: $e');
+      logger.error('## Sql execution: [${id}] error: $e');
       throw CustomError('Execute sql: [$id] failed. $e');
     } finally {
       release(id);

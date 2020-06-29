@@ -1,5 +1,6 @@
 import 'package:dartboot/core/annotation/annotation.dart';
 import 'package:dartboot/core/database/mysql_pool.dart';
+import 'package:dartboot/core/log/logger.dart';
 import 'package:dartboot/feign/self_feign_client.dart';
 
 /// RestController 接口示例
@@ -18,6 +19,7 @@ class Example01Controller {
   /// 示例：返回json数据
   @Get('/example01')
   dynamic get01(@Query('test', required: false) String test) {
+    Log.rootLevel = DEBUG;
     return {'a': 'Example 01 response: ${test ?? 'test'}'};
   }
 

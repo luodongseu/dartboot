@@ -1,19 +1,19 @@
 ########################################################
 # Eureka配置
 eureka:
-  zone: http://xxx.xxx.xx.xx:8008/eureka # eureka注册中心
+  zone: http://192.168.1.236:8008/eureka # eureka注册中心
 
 ########################################################
 # 数据库配置
 database:
   clickhouse:
-    host: xxx.xxx.x.xx
+    host: 192.168.1.225
     port: 8123
   mysql:
-    host: xxx.xxx.x.xx
+    host: 192.168.1.225
     port: 3306
-    db: xxx
-    username: xxx
-    password: xxx
+    db: dev
+    username: root
+    password: root
     minPoolSize: 20
     maxPoolSize: 50

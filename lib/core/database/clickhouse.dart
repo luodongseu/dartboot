@@ -1,10 +1,10 @@
 import 'dart:async';
 
 import 'package:dio/dio.dart';
-import 'package:logging/logging.dart';
 
 import '../bootstrap/application_context.dart';
 import '../error/custom_error.dart';
+import '../log/logger.dart';
 import '../retry/retry.dart';
 import 'pageable.dart';
 
@@ -12,7 +12,7 @@ import 'pageable.dart';
 ///
 /// @author luodongseu
 class ClickHouseDataBase {
-  Logger logger = Logger('ClickHouseDataBase');
+  Log logger = Log('ClickHouseDataBase');
 
   /// 主机IP
   String _host = '127.0.0.1';
@@ -90,7 +90,7 @@ class ClickHouseDataBase {
       limit = ' limit ${pageRequest.offset},${pageRequest.limit}';
     }
     String finalSql = '$sql$limit';
-    logger.shout('Ch sql -> $finalSql');
+    logger.debug('Ch sql -> $finalSql');
 
     try {
       List<Future> requests = [
@@ -109,7 +109,7 @@ class ClickHouseDataBase {
         result = res[0].data['data'] ?? res[0].data;
       }
     } catch (e) {
-      logger.severe("Ch sql [$finalSql] response -> error: $e");
+      logger.error("Ch sql [$finalSql] response -> error: $e");
       if (e is DioError) {
         throw CustomError('系统错误，无法访问数据');
       }
@@ -118,24 +118,24 @@ class ClickHouseDataBase {
 
     // 打印时间和状态
     int _em = DateTime.now().millisecondsSinceEpoch;
-    logger.shout('Ch sql [$finalSql] -> response in [${_em - _sm}] millsecs');
+    logger.debug('Ch sql [$finalSql] -> response in [${_em - _sm}] millsecs');
     return result;
   }
 
   /// 执行单个sql，获取响应结果并记录时间
   Future<Response> _getResponse(String sql, ResponseType responseType) async {
-    logger.shout('Ch start run single sql -> $sql ...');
+    logger.debug('Ch start run single sql -> $sql ...');
     int _sm = DateTime.now().millisecondsSinceEpoch;
     Response response = await retry(
         () => _httpClient.post(_chHttpUrl,
             data: '$sql',
             options: Options(contentType: 'text', responseType: responseType)),
         maxAttempts: 5, onRetry: (e) {
-      logger.shout("Ch sql [$sql] retry execute for "
+      logger.debug("Ch sql [$sql] retry execute for "
           "error:$e ...");
     });
     int _em = DateTime.now().millisecondsSinceEpoch;
-    logger.shout("Ch single sql -> $sql finished in [${_em - _sm}] millsecs "
+    logger.debug("Ch single sql -> $sql finished in [${_em - _sm}] millsecs "
         "and response status: [${response.statusCode} "
         "${response.statusMessage}]");
     return response;
@@ -146,9 +146,9 @@ class ClickHouseDataBase {
   /// 返回int -> 总数
   Future<int> count(String fromSql, PageRequest pageRequest) async {
     String countSql = 'select count(*) from ($fromSql) as c';
-    logger.shout('Count sql -> $countSql');
+    logger.debug('Count sql -> $countSql');
     Response countResponse = await _getResponse(countSql, ResponseType.plain);
-    logger.shout('Ch count sql [$countSql] response -> $countResponse');
+    logger.debug('Ch count sql [$countSql] response -> $countResponse');
     return int.parse('${countResponse.data ?? '0'}');
   }
 }

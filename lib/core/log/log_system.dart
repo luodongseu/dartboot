@@ -3,15 +3,15 @@ import 'dart:collection';
 import 'dart:io';
 import 'dart:isolate';
 
+import 'package:dartboot/core/bootstrap/application_context.dart';
+import 'package:dartboot/core/util/string.dart';
 import 'package:logging/logging.dart';
 
-String dateFormat(DateTime dateTime) {
-  return "${dateTime.year.toString()}-${dateTime.month.toString().padLeft(2, '0')}-${dateTime.day.toString().padLeft(2, '0')}";
-}
+import '../util/date.dart';
+import 'logger.dart';
 
-String timeFormat(DateTime dateTime) {
-  return "${dateTime.year.toString()}-${dateTime.month.toString().padLeft(2, '0')}-${dateTime.day.toString().padLeft(2, '0')} ${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}:${dateTime.second.toString().padLeft(2, '0')}:${dateTime.millisecond.toString().padLeft(3, '0')}";
-}
+/// 默认的日志文件路径
+const String defaultLogFileDir = 'logs';
 
 /// 日志系统
 ///
@@ -19,21 +19,28 @@ String timeFormat(DateTime dateTime) {
 ///
 /// @author luodongseu
 class LogSystem {
+  /// 静态实例
   static LogSystem _instance = null;
 
-  LogSystem();
+  LogSystem._c();
 
-  factory LogSystem.init() {
+  factory LogSystem._() => LogSystem._c();
+
+  factory LogSystem.init(String dir) {
     if (null != _instance) {
       return _instance;
     }
-    _instance = LogSystem();
-    _instance._initLog();
+    _instance = LogSystem._();
+    _instance._initLog(dir);
     _instance._printBanner();
-    return LogSystem();
+    return _instance;
   }
 
-  void _initLog() {
+  /// 初始化日志系统
+  ///
+  /// @step1. 开启新线程，准备接收日志消息
+  /// @step2. 监听Logger的日志流
+  void _initLog(String dir, {Level rootLevel = INFO}) {
     ReceivePort receivePort = ReceivePort();
     SendPort _sendPort;
     Completer completer = Completer();
@@ -41,18 +48,32 @@ class LogSystem {
       if (d is SendPort) {
         _sendPort = d;
         completer.complete();
+
+        // 打印日志系统启动成功的日志
+        LogRecord _log = LogRecord(
+            rootLevel ?? INFO,
+            'Log system initialized on separate isolate [${_sendPort?.hashCode}]',
+            'LogSystem');
+        _sendPort.send(_log);
       }
     });
     // 开启新的isolate处理日志
-    Isolate.spawn(_handleLog, receivePort.sendPort);
-    Logger.root.level = Level.INFO;
+    LogIsolateMessage message = LogIsolateMessage(
+        receivePort.sendPort, isEmpty(dir) ? defaultLogFileDir : dir);
+    Isolate.spawn(_handleLog, message);
+    Logger.root.level = rootLevel ?? INFO;
     Logger.root.onRecord.listen((LogRecord e) async {
-      LogRecord _log = LogRecord(e.level, e.message, e.loggerName);
+      LogFragment _log = LogFragment(
+          e.level,
+          e.message,
+          e.loggerName,
+          '${e.error ?? ''}',
+          e.stackTrace?.toString() ?? '',
+          ApplicationContext.instance['profile.active'] ?? 'default',
+          ApplicationContext.instance['server.port']);
       await completer.future;
       _sendPort.send(_log);
     });
-
-    Logger.root.info('Log system initialized on separate isolate.');
   }
 
   /// Banner print func
@@ -70,9 +91,13 @@ class LogSystem {
   }
 
   /// 处理日志
-  static void _handleLog(SendPort sendPort) {
+  static void _handleLog(LogIsolateMessage message) {
+    assert(null != message, '消息体内容不能为空');
+    assert(isNotEmpty(message.sendPort), '消息体SendPort不能为空');
+    assert(isNotEmpty(message.logDir), '消息体日志文件目录不能为空');
+
     // 处理目录
-    Directory d = Directory('logs');
+    Directory d = Directory(message.logDir);
     if (!d.existsSync()) {
       d.createSync();
     }
@@ -82,18 +107,13 @@ class LogSystem {
 
     // 接收消息
     ReceivePort receivePort = ReceivePort();
-    sendPort.send(receivePort.sendPort);
+    message.sendPort.send(receivePort.sendPort);
 
     // 处理日志
     receivePort.listen((dynamic e) {
       String lineLog = '';
-      if (e is LogRecord) {
-        if (e.level == Level.OFF) {
-          lineLog = e.message;
-        } else {
-          lineLog = '[${timeFormat(DateTime.now())}] ${e.toString() ?? ''}';
-        }
-
+      if (e is LogFragment) {
+        lineLog = '${e.toString() ?? ''}';
         // 颜色 打印日志到控制台
 //        AnsiPen pen = new AnsiPen();
 //        if (e.level == Level.INFO) {
@@ -112,36 +132,98 @@ class LogSystem {
       }
     });
 
+    _startFileWriter(logQueue);
+  }
+
+  static _startFileWriter(Queue<String> logQueue) async {
     // 日志文件缓存
-    Map<String, RandomAccessFile> openedFiles = HashMap();
+    RandomAccessFile openedFile;
 
-    // 定时每10ms打印一行内容
-    Timer.periodic(Duration(milliseconds: 1), (t) {
-      if (logQueue.isNotEmpty) {
-        String line = logQueue.removeFirst();
-
-        // 打印日志到文件
-        try {
-          String filePath = 'logs/logging.${dateFormat(DateTime.now())}.log';
-          RandomAccessFile f;
-          if (!openedFiles.containsKey(filePath)) {
-            File file = File(filePath);
-            if (!file.existsSync()) {
-              file.createSync();
-            }
-            f = file.openSync(mode: FileMode.append);
-            openedFiles.putIfAbsent(filePath, () => f);
-          } else {
-            f = openedFiles[filePath];
-          }
-          if (null != f) {
-            f.writeStringSync(line);
-            f.writeStringSync('\r\n');
-          }
-        } catch (e) {
-          print('##### Write log to file failed!!! Error: $e ######');
-        }
+    // 定时每1ms打印一行内容
+    while (true) {
+      if (logQueue.isEmpty) {
+        await Future.delayed(Duration(milliseconds: 1));
+        continue;
       }
-    });
+      String line = logQueue.removeFirst();
+
+      // 打印日志到文件
+      try {
+        String filePath = 'logs/logging.${formatDate(DateTime.now())}.log';
+        if (null == openedFile || !openedFile.path.endsWith(filePath)) {
+          File file = File(filePath);
+          if (!file.existsSync()) {
+            file.createSync();
+          }
+          openedFile = file.openSync(mode: FileMode.append);
+        }
+        if (null != openedFile) {
+          openedFile.writeStringSync(line);
+          openedFile.writeStringSync('\r\n');
+        }
+      } catch (e) {
+        print('##### Write log to file failed!!! Error: $e ######');
+      }
+    }
+  }
+}
+
+/// 日志线程消息对象
+class LogIsolateMessage {
+  /// Communication port
+  final SendPort sendPort;
+
+  /// Log files directory
+  final String logDir;
+
+  LogIsolateMessage(this.sendPort, this.logDir);
+}
+
+/// 日志片段
+class LogFragment {
+  /// Log level
+  final Level level;
+
+  /// Message to print
+  final String message;
+
+  /// StackTrace to find code quickly in error log
+  final String stackTrace;
+
+  /// Logger name, general is class name
+  final String loggerName;
+
+  /// Error message
+  final String error;
+
+  /// Active profile
+  final String profile;
+
+  /// Server port
+  final int port;
+
+  LogFragment(
+    this.level,
+    this.message,
+    this.loggerName, [
+    this.error,
+    this.stackTrace,
+    this.profile,
+    this.port,
+  ]);
+
+  @override
+  String toString() {
+    if (level == Level.OFF) {
+      return message ?? '';
+    }
+    String result =
+        '[${formatTime(DateTime.now())} :${profile ?? '--'}:${port ?? '--'}:] [${level.name}] $loggerName: $message';
+    if (isNotEmpty(error)) {
+      result += '\n';
+      result += '${error}\n';
+      result += '${stackTrace}';
+    }
+    return result;
   }
 }

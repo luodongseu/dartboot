@@ -5,7 +5,9 @@ class CustomError extends Error {
   /** Message describing the error. */
   final Object message;
 
-  CustomError([this.message]);
+  final Error e;
 
-  String toString() => '${message ?? 'Unknown error'}';
+  CustomError([this.message, this.e]);
+
+  String toString() => '${message ?? 'Unknown error'} ${e}';
 }

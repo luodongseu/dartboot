@@ -1,12 +1,14 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:mirrors';
 
-import 'package:logging/logging.dart';
 import 'package:yaml/yaml.dart';
 
 import '../annotation/annotation.dart';
 import '../eureka/eureka.dart';
+import '../log/log_system.dart';
+import '../log/logger.dart';
 import '../server/server.dart';
 import '../util/string.dart';
 import 'application_context.g.dart' deferred as gContext;
@@ -23,44 +25,48 @@ import 'application_context.g.dart' deferred as gContext;
 /// @author luodongseu
 @BootContext()
 class ApplicationContext {
-  Logger logger = Logger('DartBootApplication');
+  Log logger = Log('DartBootApplication');
 
   /// 单例
   static ApplicationContext _instance;
 
   /// 全局的配置
-  Map<String, dynamic> _properties = Map();
+  dynamic _properties = {};
 
   /// 配置文件路径
-  final String propertiesFilePath;
+  String _configFilePath;
 
   /// 所有的控制器
-  List<InstanceMirror> controllers = [];
+  List<InstanceMirror> _controllers = [];
+
+  /// 启动器，用于注册其他类的启动
+  List<Completer> _starters = [];
 
   /// 实例
   static ApplicationContext get instance => _instance;
 
-  /// 配置信息
+  ApplicationContext({configFilePath = 'config.yaml'}) {
+    _configFilePath = configFilePath;
+    _instance = this;
+  }
+
+  /// 获取全局配置操作
   dynamic operator [](String key) {
     if (key.contains('.')) {
       List<String> _keys = key.split('.');
-      var result = _properties;
+      dynamic result = _properties;
       for (int i = 0; i < _keys.length; i++) {
-        if (i == _keys.length - 1) {
-          return result;
-        }
         var _r = result[_keys[i]];
         if (null == _r) {
           return null;
         }
         result = _r;
+        if (i == _keys.length - 1) {
+          return result;
+        }
       }
     }
     return _properties[key];
-  }
-
-  ApplicationContext({this.propertiesFilePath}) {
-    _instance = this;
   }
 
   /// 初始化操作
@@ -68,59 +74,75 @@ class ApplicationContext {
   /// 请在[main.dart]中调用该方法启动DartBoot应用
   initialize() async {
     // 加载配置文件
-    loadProperties(
-        propertiesFilePath: propertiesFilePath ?? 'resource/config.yaml');
+    _loadProperties(propertiesFilePath: _configFilePath ?? 'config.yaml');
+
+    // 初始化日志系统
+    LogSystem.init(this['logging.dir']);
 
     // 扫描bean
-    await scanBeans();
+    await _scanBeans();
+
+    // register eureka if need
+    if (isNotEmpty(this['eureka'])) {
+      await EurekaClient.createSync(this['eureka.zone']);
+    }
 
     // 开启服务
-    startServer();
+    await _startServer();
 
-    // register erueka if need
-    if (!isEmpty(_properties['eureka'])) {
-      EurekaClient(_properties['eureka']['zone']);
+    // 等待所有启动器准备好
+    while (!_startersReady) {
+      logger.info('Wait starters to ready, try agin 3 secs later...');
+      await Future.delayed(Duration(seconds: 3));
     }
+
+    logger.info('Application startup completed.');
   }
 
   /// 加载配置文件
-  Future loadProperties({String propertiesFilePath}) async {
-    File file = File(propertiesFilePath);
+  _loadProperties({String propertiesFilePath}) {
+    assert(isNotEmpty(propertiesFilePath), '配置文件路径不能为空');
+
+    // 完整路径
+    String fullPath = 'resource/$propertiesFilePath';
+
+    // Bcz log system not initialize
+//    print('Start to load properties from $fullPath...');
+
+    File file = File(fullPath);
     if (null != file && file.existsSync()) {
       // 读取基本配置文件
       YamlMap yaml = loadYaml(file.readAsStringSync());
-      yaml.entries.forEach((e) {
-        _properties['${e.key}'] = e.value;
-      });
+      _properties = json.decode(json.encode(yaml)) ?? {};
 
       // 读取profile对应的配置文件
-      if (null != _properties['profile'] &&
-          !isEmpty(_properties['profile']['active'])) {
-        File profileFile = File(propertiesFilePath.replaceFirst(
-            RegExp('.yaml\$'), '-${_properties['profile']['active']}.yaml'));
+      if (null != this['profile'] && isNotEmpty(this['profile.active'])) {
+        File profileFile = File(fullPath.replaceFirst(
+            RegExp('.yaml\$'), '-${this['profile.active']}.yaml'));
         if (file.existsSync()) {
           YamlMap profileYaml = loadYaml(profileFile.readAsStringSync());
           profileYaml.entries.forEach((e) {
-            _properties['${e.key}'] = e.value;
+            _properties['${e.key}'] = json.decode(json.encode(e.value));
           });
         }
       }
-
-      logger.info('Properties load finished. $_properties');
     }
+
+    // Bcz log system not initialize
+//    print('Config properties [$_properties] loaded.');
   }
 
   /// 扫描Bean
   ///
   /// 包含： [RestController]
-  void scanBeans() async {
+  _scanBeans() async {
     // 1. Create BuildContext instance which created by build_runner
     // Dynamic import all controller classes
     logger.info('Start to scan beans in application...');
 
     await gContext.loadLibrary();
     gContext.BuildContext().load();
-    logger.info('Dynamic class -> BuildContext loaded.');
+    logger.info('Dynamic class -> [BuildContext] loaded.');
 
     // 所有的镜像
     List<InstanceMirror> allMirrors = _loadAllAnnotatedMirrors();
@@ -128,7 +150,7 @@ class ApplicationContext {
     // 2. 扫描接口控制器
     _handleRestControllers(allMirrors);
 
-    logger.info('Known beans scan finished.');
+    logger.info('Beans scan finished.');
   }
 
   /// 加载所有的带有注解的镜子
@@ -160,17 +182,28 @@ class ApplicationContext {
         if (!bp.startsWith('/')) {
           bp = '/' + bp;
         }
-        controllers.add(im);
+        _controllers.add(im);
       }
     });
     logger.info(
-        "RestController scan finished. ${controllers.map((c) => c.type.simpleName).toList()}");
+        "RestController scan finished. Total ${_controllers.length} controllers.");
+    _controllers
+        .forEach((c) => logger.info("RestController: ${c.type.simpleName}."));
   }
 
   /// 开启http服务
-  startServer() {
-    logger.info('Start to start http server...');
-    Server server = Server(controllers);
-    server.start();
+  _startServer() async {
+    Server server = Server(_controllers);
+    await server.start();
   }
+
+  /// 添加启动器，通过[Completer] [Completer.complete()]控制生命周期
+  void addStarter(Completer completer) {
+    assert(null != completer, 'Parameter must not be null');
+
+    _starters.add(completer);
+  }
+
+  /// 是否Starters全部准备好
+  bool get _startersReady => !_starters.any((c) => !c.isCompleted);
 }

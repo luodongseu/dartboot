@@ -26,7 +26,6 @@ class Scanner implements Generator {
 
   @override
   FutureOr<String> generate(LibraryReader library, BuildStep buildStep) {
-    print(buildStep.inputId);
     for (ClassElement clazz in library.classes) {
       /// 扫描 [RestController] 注解类
       if (restControllerChecker.hasAnnotationOf(clazz)) {

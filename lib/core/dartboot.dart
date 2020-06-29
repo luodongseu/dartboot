@@ -3,7 +3,6 @@ library dartboot;
 import 'dart:async';
 
 import 'bootstrap/application_context.dart';
-import 'log/log_system.dart';
 
 /// Dart的快速启动入口类
 ///
@@ -13,10 +12,6 @@ import 'log/log_system.dart';
 /// @author luodong
 class DartBootApplication {
   static Future run({String propertiesFilePath}) async {
-    // 1. 初始化日志系统
-    LogSystem.init();
-
-    // 2. 创建ApplicationContext
     ApplicationContext context = ApplicationContext();
     context.initialize();
   }

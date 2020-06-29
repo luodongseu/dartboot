@@ -14,3 +14,11 @@ bool isEmpty(s) {
   }
   return '$s'.length == 0;
 }
+
+/// 非空判断
+bool isNotEmpty(s) => !isEmpty(s);
+
+/// 格式化URL路径
+String formatUrlPath(url) {
+  return '${url ?? ''}'.replaceAll(RegExp('[/]{2,}'), '/');
+}

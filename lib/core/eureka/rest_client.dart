@@ -1,9 +1,9 @@
 import 'dart:async';
 
 import 'package:dio/dio.dart';
-import 'package:logging/logging.dart';
 
 import '..//error/custom_error.dart';
+import '../log/logger.dart';
 import '../util/string.dart';
 import 'client.dart';
 import 'instance.dart';
@@ -16,7 +16,7 @@ import 'runner.dart';
 ///
 /// @author luodong
 class EurekaRestClient {
-  Logger logger = Logger('EurekaRestClient');
+  Log logger = Log('EurekaRestClient');
 
   /// 服务的ID
   final String serviceId;
@@ -237,7 +237,7 @@ class EurekaRestClient {
 
 /// Runner实例
 class EurekaRestClientRunner extends Runner {
-  Logger logger = Logger('EurekaRestClientRunner');
+  Log logger = Log('EurekaRestClientRunner');
 
   /// 远端路径，直接返回
   final String remoteAddress;

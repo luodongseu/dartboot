@@ -1,10 +1,10 @@
 import 'dart:async';
 
 import 'package:dio/dio.dart';
-import 'package:logging/logging.dart';
 
 import '../bootstrap/application_context.dart';
 import '../error/custom_error.dart';
+import '../log/logger.dart';
 import '../util/ipaddress.dart';
 import '../util/string.dart';
 import '../util/uid.dart';
@@ -23,17 +23,17 @@ final Duration defaultFetchAppDuration = Duration(seconds: 15);
 /// step3. 服务下线
 /// step4. 获取服务列表、刷新服务列表
 class EurekaClient {
-  Logger logger = Logger('EurekaClient');
+  Log logger = Log('EurekaClient');
 
   static EurekaClient _instance;
 
   /// APP ID
   final String _appId =
-      ApplicationContext.instance['app']['name'] ?? 'APP_$uid4';
+      '${ApplicationContext.instance['app.name'] ?? 'APP_$uid4'}';
 
   /// 端口号
   final int _port =
-      int.parse('${ApplicationContext.instance['server']['port'] ?? 8080}');
+      int.parse('${ApplicationContext.instance['server.port'] ?? 8080}');
 
   /// 实例ID
   String _instanceId;
@@ -62,16 +62,16 @@ class EurekaClient {
   /// 监听器
   List<StreamController> _appListeners = [];
 
-  factory EurekaClient(defaultZone) {
+  static Future<EurekaClient> createSync(defaultZone) async {
     if (null == _instance) {
-      _instance = EurekaClient._(defaultZone: defaultZone);
+      _instance = EurekaClient(defaultZone: defaultZone);
+      await _instance._register();
     }
     return _instance;
   }
 
-  EurekaClient._({this.defaultZone = 'http://localhost:8761/eureka/'}) {
+  EurekaClient({this.defaultZone = 'http://localhost:8761/eureka/'}) {
     _initRc();
-    _register();
   }
 
   static EurekaClient get instance => _instance;
@@ -90,7 +90,7 @@ class EurekaClient {
 
   /// 初始化Rest客户端
   _initRc() {
-    logger.fine('Start to init rest client...');
+    logger.info('Start to initialize rest client...');
     _rc = Dio(BaseOptions(
         receiveDataWhenStatusError: true,
         contentType: 'application/json',
@@ -101,17 +101,18 @@ class EurekaClient {
     }, onResponse: (Response response) async {
       return response; // continue
     }, onError: (DioError e) async {
-      logger.severe('_rc client request failed!', e);
+      logger.error('Eureka client request to center [$defaultZone] failed!', e,
+          StackTrace.current);
       return null; //continue
     }));
-    logger.fine('Rest client initilized.');
+    logger.info('Rest client initialized.');
   }
 
   /// 注册客户端
   _register() async {
     _instanceId = '${_appId}_$uid8:$_port';
 
-    logger.fine(
+    logger.info(
         'Start to register client:[$_instanceId] to center:[$defaultZone]...');
 
     try {
@@ -126,7 +127,7 @@ class EurekaClient {
           .toJson();
       await _rc.post(url, data: {'instance': inst});
 
-      logger.fine('Client:[$_instanceId] registered.');
+      logger.info('Client:[$_instanceId] registered.');
 
       // 开始获取应用列表
       _startFetchAppTimer();
@@ -134,7 +135,7 @@ class EurekaClient {
       // 开启心跳
       _startHeartbeatTimer();
     } catch (e) {
-      logger.severe('Register failed!', e);
+      logger.error('Register failed!', e);
       throw CustomError('无法初始化Eureka客户端');
     }
   }
@@ -151,36 +152,36 @@ class EurekaClient {
 
   /// 发送心跳
   _sendHeartBeat() async {
-    logger.fine('Start to send heartbeat to center:[$defaultZone]...');
+    logger.debug('Start to send heartbeat to center:[$defaultZone]...');
 
     try {
       var url =
           '$defaultZone/apps/$_appId/$_instanceId?status=${_isUp ? 'UP' : 'DOWN'}';
       await _rc.put(url);
     } catch (e) {
-      logger.severe('Send heartbeat failed!', e);
+      logger.error('Send heartbeat failed!', e);
       throw CustomError('无法发送心跳');
     }
 
-    logger.fine('Send heartbeat success.');
+    logger.debug('Send heartbeat success.');
   }
 
   /// 下线服务
   down() async {
-    logger.fine('Start to down client...');
+    logger.info('Start to down client...');
 
     _isUp = false;
 
-    logger.fine('Down client success.');
+    logger.info('Down client success.');
   }
 
   /// 上线
   up() async {
-    logger.fine('Start to up client...');
+    logger.info('Start to up client...');
 
     _isUp = true;
 
-    logger.fine('Up client success.');
+    logger.info('Up client success.');
   }
 
   /// 关闭
@@ -194,17 +195,17 @@ class EurekaClient {
 
   /// 从注册中心移除客户端
   unregister() async {
-    logger.fine('Start to unregister client...');
+    logger.info('Start to unregister client...');
 
     try {
       shutdown();
       await _rc.delete('$defaultZone/apps/$_appId/$_instanceId');
     } catch (e) {
-      logger.severe('Unregister failed!', e);
+      logger.error('Unregister failed!', e);
       throw CustomError('无法移除Eureka客户端');
     }
 
-    logger.fine('Unregister client success.');
+    logger.info('Unregister client success.');
   }
 
   /// 开启获取应用列表时间定时器
@@ -220,7 +221,7 @@ class EurekaClient {
 
   /// 获取应用列表
   _fetchApplications() async {
-    logger.fine('Start to fetch applications from center:[$defaultZone]...');
+    logger.debug('Start to fetch applications from center:[$defaultZone]...');
 
     var url = '$defaultZone/apps/';
     try {
@@ -238,11 +239,11 @@ class EurekaClient {
       // 通知监听器
       _notifyAppListeners();
 
-      logger.fine('${_applications.length} applications fetched.');
+      logger.debug('${_applications.length} applications fetched.');
 
       return true;
     } catch (e) {
-      logger.severe('Cannot get applications from center.', e);
+      logger.error('Cannot get applications from center.', e);
       return false;
     }
   }

@@ -5,14 +5,25 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:mirrors';
 
-import 'package:logging/logging.dart';
-
-import '..//error/custom_error.dart';
 import '../annotation/annotation.dart';
 import '../bootstrap/application_context.dart';
+import '../error/custom_error.dart';
+import '../log/logger.dart';
 import '../util/string.dart';
 
 part 'request_path.dart';
+
+/// 默认支持的资源文件扩展
+const defaultSupportResourceFileExtPatterns = [
+  '\.ico',
+  '\.html',
+  '\.css',
+  '\.js',
+  '\.jpg',
+  '\.jpeg',
+  '\.png',
+  '\.mp4'
+];
 
 /// HttpServer的封装类，用于开启Http[s]服务
 ///
@@ -20,7 +31,7 @@ part 'request_path.dart';
 ///
 /// @author ludongseu
 class Server {
-  Logger logger = Logger('Server');
+  Log logger = Log('HttpServer');
 
   /// https
   SecurityContext _securityContext;
@@ -40,10 +51,16 @@ class Server {
   /// 上下文地址
   String _contextPath;
 
+  /// 支持的资源文件扩展匹配
+  List<String> _supportResourceFileExtPatterns = [];
+
   /// 构造函数
   Server(List<InstanceMirror> controllers) {
-    _contextPath = ApplicationContext.instance['server']['contextPath'] ?? '/';
+    _contextPath = ApplicationContext.instance['server.contextPath'] ?? '/';
     _contextPath = '$_contextPath'.replaceAll(RegExp(r'[/]{2,}'), '/');
+    _supportResourceFileExtPatterns =
+        ApplicationContext.instance['server.static.supportExts'] ??
+            defaultSupportResourceFileExtPatterns;
     _initRouter(controllers ?? []);
   }
 
@@ -137,7 +154,7 @@ class Server {
   ///
   /// 绑定的端口使用启动配置中的端口，默认为8080
   void start() async {
-    logger.info("Application start binding http server...");
+    logger.info("Start to bind http server to local host...");
 
     // 处理容器启动的参数
     dynamic serverConfig = ApplicationContext.instance['server'];
@@ -165,15 +182,20 @@ class Server {
       _server = await HttpServer.bind(InternetAddress.anyIPv4, _port,
           v6Only: false, shared: false);
     }
-//    _server.listen((request) =>
-//        runZoned(() => _receiveRequest(request), onError: (e) async {
-//          logger.severe('Request [${request.method} ${request.uri.path}] error:'
-//              ' $e');
-//          _sendError(request, CustomError(e.toString()));
-//        }));
-    _server.listen((request) => _receiveRequest(request));
+
+    // // handle errors to response 500 or 404
+    _server.listen((request) =>
+        runZoned(() => _receiveRequest(request), onError: (e) async {
+          logger.error('Request [${request.method} ${request.uri.path}] error:'
+              ' $e');
+          _sendError(request, CustomError(e.toString()));
+        }));
+
+    // // not handle any error
+    // _server.listen((request) => _receiveRequest(request));
+
     logger.info(
-        'Application started on port:$_port and context path:[$_contextPath].');
+        'Server started on port:$_port and context path:[$_contextPath].');
   }
 
   /// 处理请求体，
@@ -185,8 +207,8 @@ class Server {
       return;
     }
 
-    // 匹配图标
-    if (matchFavicon(request)) {
+    // 匹配静态资源文件
+    if (matchResource(request)) {
       return;
     }
 
@@ -369,7 +391,7 @@ class Server {
     request.response.add('<h1>404</h1><h3>Not found.</h3>'.codeUnits);
     request.response.close();
 
-    logger.severe('Resource not found: ${request.uri.path}');
+    logger.error('Resource not found: ${request.uri.path}');
   }
 
   /// 响应500
@@ -382,7 +404,7 @@ class Server {
         .add(utf8.encode('<h1>500</h1><h3>${error ?? 'Internal error.'}</h3>'));
     request.response.close();
 
-    logger.severe('Response to: ${request.uri.path} error: $error');
+    logger.error('Response to: ${request.uri.path} error: $error');
   }
 
   /// 响应200和json格式的内容
@@ -413,9 +435,11 @@ class Server {
   }
 
   /// 匹配favicon
-  bool matchFavicon(HttpRequest request) {
-    if (request.uri?.path == '/favicon.ico') {
-      File iconFile = File('public/favicon.ico');
+  bool matchResource(HttpRequest request) {
+    String path = '${request.uri?.path}';
+    if (_supportResourceFileExtPatterns
+        .any((p) => RegExp('.*$p').hasMatch(path))) {
+      File iconFile = File(formatUrlPath('resource/static/$path'));
       if (iconFile.existsSync()) {
         request.response.headers.contentType = ContentType.binary;
         try {
