@@ -199,7 +199,7 @@ class EurekaRestClient {
       return false;
     }
 
-    logger.info(
+    logger.debug(
         'Start to refresh app:[id=$serviceId]\'s instance list and load balancer...');
 
     App app = EurekaClient.instance.apps.firstWhere((a) {
@@ -234,7 +234,7 @@ class EurekaRestClient {
       _loadBalancer = LoadBalancer(runners);
     }
 
-    logger.info(
+    logger.debug(
         'App:[id=$serviceId] loaded with ${remoteHostAndPorts.length} instances: $remoteHostAndPorts]');
 
     return true;
@@ -277,7 +277,7 @@ class EurekaRestClientRunner extends Runner {
       ProgressCallback onSendProgress,
       ProgressCallback onReceiveProgress}) async {
     String p = await combinePath(path);
-    logger.info(
+    logger.debug(
         'Start to invoke eureka rest client with url: [${options?.method} $p]...');
     return client.request(
       p,
