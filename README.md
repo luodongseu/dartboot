@@ -73,6 +73,11 @@ Follow these steps, you can run and code your own dart boot application:
 }
 ```
 
+## Annotations
+
+- `@Bean` | `@bean` Class will be scanned to register into application context and the default non args constructor will be invoked before application started
+- `@RestController([path])` A api endpoint class. All rest api will entry to these classes which annotated with this. `path` is the endpoint root url path, normally it could like `/abc/def`. Also the default non args constructor will be invoked before application started
+
 ## Configurations
 
 - `profile.active` Active profile identifier which used to discover config extend config file. For example , value is `dev`, then application will load `config-dev.yaml` in resources directory
