@@ -56,7 +56,7 @@ class Server {
 
   /// 构造函数
   Server(List<InstanceMirror> controllers) {
-    _contextPath = ApplicationContext.instance['server.contextPath'] ?? '/';
+    _contextPath = ApplicationContext.instance['server.context-path'] ?? '/';
     _contextPath = '$_contextPath'.replaceAll(RegExp(r'[/]{2,}'), '/');
     _supportResourceFileExtPatterns =
         ApplicationContext.instance['server.static.supportExts'] ??

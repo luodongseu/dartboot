@@ -12,4 +12,15 @@ app:
 # 服务配置
 server:
   port: 8700 # 端口可以自定义修改
-  contextPath: /dartboot # 上下文可以自定义修改
+  context-path: /dartboot # 上下文可以自定义修改
+
+########################################################
+# Eureka配置
+eureka:
+  zone: http://xxx.xxx.x.x:xxxx/eureka # eureka注册中心
+  fetch-registry-interval-seconds: 5 # 刷新APP的周期（秒）
+  heartbeat-interval-seconds: 5 # 心跳周期（秒）
+
+########################################################
+# 数据库配置
+database:

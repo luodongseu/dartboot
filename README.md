@@ -73,6 +73,26 @@ Follow these steps, you can run and code your own dart boot application:
 }
 ```
 
+## Configurations
+
+- `profile.active` Active profile identifier which used to discover config extend config file. For example , value is `dev`, then application will load `config-dev.yaml` in resources directory
+> **Note:**
+> **properties in `config-[profile].yaml` will override same root key properties in `config.yaml`**
+- `app.name` Application identifier which will registered to eureka center server
+- `server.port` Http server bind port
+- `server.context-path` Http server root endpoint which will append as prefix to any http request (except for static files in `resource/static/` directory)
+- `eureka.zone` Eureka server url, usually it's endWiths `/eureka`
+- `eureka.fetch-registry-interval-seconds` Interval seconds for eureka client to fetch all applications registered in eureka center server
+- `eureka.heartbeat-interval-seconds` Interval seconds for eureka clients send heartbeat signal to eureka center server, to keep client online
+- `database` Mysql database or mongodb database configuration should be placed here
+- `database.[mysql_id].host` Mysql server host address
+- `database.[mysql_id].port` Mysql server port
+- `database.[mysql_id].db` Mysql server database name
+- `database.[mysql_id].username` Mysql server connect user name
+- `database.[mysql_id].password` Mysql server connect user password
+- `database.[mysql_id].min-pool-size` Mysql connection pool min keep alive size
+- `database.[mysql_id].max-pool-size` Mysql connection pool max connection size
+
 ## Release notes
 
 This project is still in development. Contact me or submit issues if you have any questions or meet any bug.

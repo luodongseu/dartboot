@@ -2,6 +2,8 @@
 # Eureka配置
 eureka:
   zone: http://xxx.xxx.xx.xx:8008/eureka # eureka注册中心
+  fetch-registry-interval-seconds: 5 # 刷新APP的周期（秒）
+  heartbeat-interval-seconds: 5 # 心跳周期（秒）
 
 ########################################################
 # 数据库配置
@@ -15,5 +17,5 @@ database:
     db: xxx
     username: xxx
     password: xxx
-    minPoolSize: 20
-    maxPoolSize: 50
+    min-pool-size: 20
+    max-pool-size: 50

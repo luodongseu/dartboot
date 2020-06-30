@@ -11,7 +11,7 @@ import '../util/uid.dart';
 import 'instance.dart';
 
 /// 心跳间隔时间
-final Duration defaultHeartbeatDuration = Duration(seconds: 30);
+final Duration defaultHeartbeatDuration = Duration(seconds: 5);
 
 /// 获取应用列表间隔时间
 final Duration defaultFetchAppDuration = Duration(seconds: 15);
@@ -49,9 +49,6 @@ class EurekaClient {
 
   /// 客户端列表
   List<App> _applications;
-
-  /// 是否在线
-  bool _isUp = true;
 
   /// 是否准备好
   bool _isReady = false;
@@ -110,7 +107,7 @@ class EurekaClient {
 
   /// 注册客户端
   _register() async {
-    _instanceId = '${_appId}_$uid8:$_port';
+    _instanceId = '${_appId}:$_port';
 
     logger.info(
         'Start to register client:[$_instanceId] to center:[$defaultZone]...');
@@ -145,7 +142,12 @@ class EurekaClient {
     if (null != _heartbeatTimer) {
       _heartbeatTimer.cancel();
     }
-    _heartbeatTimer = Timer.periodic(defaultHeartbeatDuration, (t) {
+
+    // 读取配置
+    int hs = ApplicationContext.instance['eureka.heartbeat-interval-seconds'];
+    Duration period =
+        null != hs ? Duration(seconds: hs) : defaultHeartbeatDuration;
+    _heartbeatTimer = Timer.periodic(period, (t) {
       _sendHeartBeat();
     });
   }
@@ -155,8 +157,8 @@ class EurekaClient {
     logger.debug('Start to send heartbeat to center:[$defaultZone]...');
 
     try {
-      var url =
-          '$defaultZone/apps/$_appId/$_instanceId?status=${_isUp ? 'UP' : 'DOWN'}';
+      var url = '$defaultZone/apps/$_appId/$_instanceId?status=UP';
+      logger.info('url $url');
       await _rc.put(url);
     } catch (e) {
       logger.error('Send heartbeat failed!', e);
@@ -170,7 +172,7 @@ class EurekaClient {
   down() async {
     logger.info('Start to down client...');
 
-    _isUp = false;
+    _unregister();
 
     logger.info('Down client success.');
   }
@@ -179,13 +181,13 @@ class EurekaClient {
   up() async {
     logger.info('Start to up client...');
 
-    _isUp = true;
+    _register();
 
     logger.info('Up client success.');
   }
 
   /// 关闭
-  shutdown() {
+  _shutdown() {
     _heartbeatTimer?.cancel();
     _heartbeatTimer = null;
 
@@ -194,11 +196,11 @@ class EurekaClient {
   }
 
   /// 从注册中心移除客户端
-  unregister() async {
+  _unregister() async {
     logger.info('Start to unregister client...');
 
     try {
-      shutdown();
+      _shutdown();
       await _rc.delete('$defaultZone/apps/$_appId/$_instanceId');
     } catch (e) {
       logger.error('Unregister failed!', e);
@@ -214,7 +216,13 @@ class EurekaClient {
       _fetchAppTimer.cancel();
     }
     _fetchApplications();
-    _fetchAppTimer = Timer.periodic(defaultFetchAppDuration, (t) {
+
+    // 读取配置
+    int fs =
+        ApplicationContext.instance['eureka.fetch-registry-interval-seconds'];
+    Duration period =
+        null != fs ? Duration(seconds: fs) : defaultFetchAppDuration;
+    _fetchAppTimer = Timer.periodic(period, (t) {
       _fetchApplications();
     });
   }

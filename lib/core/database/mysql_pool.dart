@@ -91,8 +91,8 @@ class MysqlClientPool {
           db: mysqlConfig['db'],
           username: mysqlConfig['username'],
           password: mysqlConfig['password'],
-          minSize: int.parse('${mysqlConfig['minPoolSize'] ?? 5}'),
-          maxSize: int.parse('${mysqlConfig['maxPoolSize'] ?? 30}'),
+          minSize: int.parse('${mysqlConfig['min-pool-size'] ?? 5}'),
+          maxSize: int.parse('${mysqlConfig['max-pool-size'] ?? 30}'),
           testQueryPeriodMills:
               int.parse('${mysqlConfig['testQueryPeriodMills'] ?? 30000}'));
     }
