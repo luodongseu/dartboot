@@ -213,12 +213,14 @@ class ApplicationContext {
     });
     int retry = classMirrors.length;
     while (classMirrors.isNotEmpty) {
-      assert(retry >= 0, 'Retry instance annotated mirrors failed!');
+      assert(retry >= 0, 'Retry initial annotated mirrors failed!');
 
       ClassMirror dm = classMirrors.removeFirst();
       try {
         _allInstanceMirrors.add(dm.newInstance(Symbol.empty, []));
       } catch (e) {
+        logger.debug(
+            'Initial class mirror ${dm.simpleName} error $e and it will be initialized again in end.');
         classMirrors.addLast(dm);
         retry--;
       }
