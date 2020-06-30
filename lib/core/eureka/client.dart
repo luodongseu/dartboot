@@ -158,7 +158,6 @@ class EurekaClient {
 
     try {
       var url = '$defaultZone/apps/$_appId/$_instanceId?status=UP';
-      logger.info('url $url');
       await _rc.put(url);
     } catch (e) {
       logger.error('Send heartbeat failed!', e);
