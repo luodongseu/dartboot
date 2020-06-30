@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:mirrors';
@@ -94,8 +95,8 @@ class ApplicationContext {
     // 初始化退出事件监听器
     _listenSystemExit();
 
-    // 扫描bean
-    await _scanBeans();
+    // 扫描带注解的类
+    await _scanAnnotatedClasses();
 
     // register eureka if need
     if (isNotEmpty(this['eureka'])) {
@@ -173,10 +174,10 @@ class ApplicationContext {
   }
 
   /// 扫描带注解的所有dart类
-  _scanBeans() async {
+  _scanAnnotatedClasses() async {
     // 1. Create BuildContext instance which created by build_runner
     // Dynamic import all controller classes
-    logger.info('Start to scan beans in application...');
+    logger.info('Start to scan annotated classes in application...');
 
     await gContext.loadLibrary();
     gContext.BuildContext().load();
@@ -189,7 +190,7 @@ class ApplicationContext {
     _handleBeans(allMirrors);
     _handleRestControllers(allMirrors);
 
-    logger.info('Beans scan finished.');
+    logger.info('All annotated classes scanned.');
   }
 
   /// 加载所有的带有注解的镜子
@@ -202,14 +203,26 @@ class ApplicationContext {
     bool isLegalMirror(InstanceMirror m) =>
         m.hasReflectee &&
         (m.reflectee is RestController || m.reflectee is Bean);
-
+    Queue<ClassMirror> classMirrors = Queue();
     currentMirrorSystem().libraries.values.forEach((lm) {
       lm.declarations.values.forEach((dm) {
         if (dm is ClassMirror && dm.metadata.any((m) => isLegalMirror(m))) {
-          _allInstanceMirrors.add(dm.newInstance(Symbol.empty, []));
+          classMirrors.add(dm);
         }
       });
     });
+    int retry = classMirrors.length;
+    while (classMirrors.isNotEmpty) {
+      assert(retry >= 0, 'Retry instance annotated mirrors failed!');
+
+      ClassMirror dm = classMirrors.removeFirst();
+      try {
+        _allInstanceMirrors.add(dm.newInstance(Symbol.empty, []));
+      } catch (e) {
+        classMirrors.addLast(dm);
+        retry--;
+      }
+    }
     return _allInstanceMirrors;
   }
 
@@ -218,6 +231,13 @@ class ApplicationContext {
     mirrors.forEach((im) {
       bool hasAnn = im.type.metadata.any((m) => m.reflectee is Bean);
       if (hasAnn) {
+        Bean bean = im.type.metadata
+            .singleWhere((m) => m.reflectee is Bean)
+            .reflectee as Bean;
+        if (isNotEmpty(bean.conditionOnProperty) &&
+            isEmpty(this[bean.conditionOnProperty])) {
+          return;
+        }
         _beans.add(im);
       }
     });

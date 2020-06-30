@@ -1,7 +1,5 @@
 part of annotation;
 
-const bean = const Bean();
-
 /// ====================================================
 /// @Annotation Bean
 ///
@@ -10,7 +8,7 @@ const bean = const Bean();
 ///
 /// example:
 /// ```dart
-/// @bean
+/// @Bean(conditionOnProperty: 'abc.def')
 /// class TestService {
 ///
 ///   /// default constructor will be invoked automatic
@@ -25,5 +23,8 @@ const bean = const Bean();
 /// ====================================================
 ///
 class Bean {
-  const Bean();
+  /// 实例化条件：当存在指定的配置key
+  final String conditionOnProperty;
+
+  const Bean({this.conditionOnProperty});
 }
