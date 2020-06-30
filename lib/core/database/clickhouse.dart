@@ -55,7 +55,7 @@ class ClickHouseClient {
     });
   }
 
-  static get instance => _instance;
+  static ClickHouseClient get instance => _instance;
 
   /// 执行SQL语句
   ///
@@ -75,6 +75,7 @@ class ClickHouseClient {
 
     // 过滤多余的空字符
     String sql = '$_sql'
+        .toLowerCase()
         .replaceFirst(RegExp(r'^\s+'), '')
         .replaceFirst(RegExp(r'\s+$'), '')
         .replaceAll(RegExp(r'\s{2,}'), ' ');
@@ -128,7 +129,7 @@ class ClickHouseClient {
     int _sm = DateTime.now().millisecondsSinceEpoch;
     Response response = await retry(
             () => _httpClient.post(_chHttpUrl,
-            data: '$sql',
+            data: '$sql'.toLowerCase(),
             options: Options(contentType: 'text', responseType: responseType)),
         maxAttempts: 5, onRetry: (e) {
       logger.debug("Ch sql [$sql] retry execute for "
@@ -145,7 +146,7 @@ class ClickHouseClient {
   ///
   /// 返回int -> 总数
   Future<int> count(String fromSql, PageRequest pageRequest) async {
-    String countSql = 'select count(*) from ($fromSql) as c';
+    String countSql = 'select count(*) from ($fromSql) as c'.toLowerCase();
     logger.debug('Count sql -> $countSql');
     Response countResponse = await _getResponse(countSql, ResponseType.plain);
     logger.debug('Ch count sql [$countSql] response -> $countResponse');
