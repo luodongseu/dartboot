@@ -12,34 +12,44 @@ import 'pageable.dart';
 ///
 /// @author luodongseu
 class ClickHouseDataBase {
-  Log logger = Log('ClickHouseDataBase');
+  static Log logger = Log('ClickHouseDataBase');
 
   /// 主机IP
-  String _host = '127.0.0.1';
+  String _host;
 
   /// 端口号
-  int _port = 8123;
+  int _port;
 
   /// clickhouse的http接口url
   String _chHttpUrl;
 
   /// http客户端
-  static Dio _httpClient = Dio();
+  static Dio _httpClient;
 
   /// 全局唯一实例
   static ClickHouseDataBase _instance = null;
 
   static get instance {
     if (null == _instance) {
-      String host;
-      int port;
-      dynamic database = ApplicationContext.instance['database'];
-      if (null != database && null != database['clickhouse']) {
-        host = database['clickhouse']['host'];
-        port = int.parse('${database['clickhouse']['port']}');
-      }
-      _instance = ClickHouseDataBase(host: host, port: port);
+      throw CustomError('请先初始化ClickHouse客户端');
     }
+    return _instance;
+  }
+
+  static Future<ClickHouseDataBase> createSync() async {
+    if (null != _instance) {
+      return _instance;
+    }
+    String host =
+        ApplicationContext.instance['database.clickhouse.host'] ?? '127.0.0.1';
+    int port = int.parse(
+        '${ApplicationContext.instance['database.clickhouse.port'] ?? 8123}');
+    _instance = ClickHouseDataBase(host: host, port: port);
+
+    await _instance.execute('select 1');
+
+    logger.info("Clickhouse server:[$host:$port] connected.");
+
     return _instance;
   }
 
@@ -51,7 +61,15 @@ class ClickHouseDataBase {
       _port = port;
     }
     _chHttpUrl = 'http://$_host:$_port/';
-    logger.info("Ch initialized with host:$host and port:$port.");
+
+    logger.info("Start to connect clickhouse server:[$_host:$_port]...");
+
+    _httpClient =
+        Dio(BaseOptions(contentType: 'application/json;charset=UTF-8'));
+    _httpClient.interceptors.add(InterceptorsWrapper(onError: (e) {
+      logger.error('Run sql failed [$e].', e.error);
+      return null;
+    }));
   }
 
   /// 执行SQL语句
@@ -86,7 +104,7 @@ class ClickHouseDataBase {
     if (null != pageRequest) {
       assert(pageRequest.limit > 0, 'Page size must bigger than zero.');
       assert(pageRequest.page >= 0,
-          'Page index must bigger than or equal to zero.');
+      'Page index must bigger than or equal to zero.');
       limit = ' limit ${pageRequest.offset},${pageRequest.limit}';
     }
     String finalSql = '$sql$limit';
@@ -110,9 +128,6 @@ class ClickHouseDataBase {
       }
     } catch (e) {
       logger.error("Ch sql [$finalSql] response -> error: $e");
-      if (e is DioError) {
-        throw CustomError('系统错误，无法访问数据');
-      }
       throw CustomError(e);
     }
 
@@ -127,7 +142,7 @@ class ClickHouseDataBase {
     logger.debug('Ch start run single sql -> $sql ...');
     int _sm = DateTime.now().millisecondsSinceEpoch;
     Response response = await retry(
-        () => _httpClient.post(_chHttpUrl,
+            () => _httpClient.post(_chHttpUrl,
             data: '$sql',
             options: Options(contentType: 'text', responseType: responseType)),
         maxAttempts: 5, onRetry: (e) {

@@ -6,6 +6,7 @@ import 'dart:mirrors';
 import 'package:yaml/yaml.dart';
 
 import '../annotation/annotation.dart';
+import '../database/clickhouse.dart';
 import '../eureka/eureka.dart';
 import '../log/log_system.dart';
 import '../log/logger.dart';
@@ -96,6 +97,11 @@ class ApplicationContext {
     // register eureka if need
     if (isNotEmpty(this['eureka'])) {
       await EurekaClient.createSync(this['eureka.zone']);
+    }
+
+    // init clickhouse if need
+    if (isNotEmpty(this['database.clickhouse'])) {
+      await ClickHouseDataBase.createSync();
     }
 
     // 开启服务
