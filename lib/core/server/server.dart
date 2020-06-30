@@ -393,7 +393,7 @@ class Server {
   /// 接口不存在情况下会调用
   void _send404(HttpRequest request) {
     request.response.statusCode = HttpStatus.notFound;
-    request.response.headers.add('Content-Type', 'text/html');
+    request.response.headers.add('Content-Type', 'text/html;charset=UTF-8');
     request.response.add('<h1>404</h1><h3>Not found.</h3>'.codeUnits);
     request.response.close();
 
@@ -405,7 +405,7 @@ class Server {
   /// 接口调用失败会响应
   void _sendError(HttpRequest request, CustomError error) {
     request.response.statusCode = HttpStatus.internalServerError;
-    request.response.headers.add('Content-Type', 'text/html');
+    request.response.headers.add('Content-Type', 'text/html;charset=UTF-8');
     request.response
         .add(utf8.encode('<h1>500</h1><h3>${error ?? 'Internal error.'}</h3>'));
     request.response.close();
