@@ -63,6 +63,8 @@ class EurekaClient {
     if (null == _instance) {
       _instance = EurekaClient(defaultZone: defaultZone);
       await _instance._register();
+      // 监听退出
+      ApplicationContext.instance.listenExit(() => _instance._unregister());
     }
     return _instance;
   }

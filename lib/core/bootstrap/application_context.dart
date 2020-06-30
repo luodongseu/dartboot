@@ -13,6 +13,8 @@ import '../server/server.dart';
 import '../util/string.dart';
 import 'application_context.g.dart' deferred as gContext;
 
+typedef ExitEvent = Function();
+
 /// DartBoot Application entry side
 ///
 /// 应用的入口类
@@ -41,6 +43,12 @@ class ApplicationContext {
 
   /// 启动器，用于注册其他类的启动
   List<Completer> _starters = [];
+
+  /// 系统退出监听器器
+  List<ExitEvent> _exitListeners = [];
+
+  /// 是否正在退出
+  bool _exiting = false;
 
   /// 实例
   static ApplicationContext get instance => _instance;
@@ -78,6 +86,9 @@ class ApplicationContext {
 
     // 初始化日志系统
     LogSystem.init(this['logging.dir']);
+
+    // 初始化退出事件监听器
+    _listenSystemExit();
 
     // 扫描bean
     await _scanBeans();
@@ -130,6 +141,26 @@ class ApplicationContext {
 
     // Bcz log system not initialize
 //    print('Config properties [$_properties] loaded.');
+  }
+
+  /// 初始化系统进程关闭监听
+  _listenSystemExit() {
+    // Ctrl+C handler.
+    ProcessSignal.sigint.watch().listen((_) async {
+      if (_exiting) {
+        return;
+      }
+      _exiting = true;
+      try {
+        _exitListeners.forEach((f) => f());
+      } catch (e) {
+        logger.error('Exit listener invoke failed.', e);
+      } finally {
+        Future.delayed(Duration(milliseconds: 300), () {
+          exit(0);
+        });
+      }
+    });
   }
 
   /// 扫描Bean
@@ -202,6 +233,13 @@ class ApplicationContext {
     assert(null != completer, 'Parameter must not be null');
 
     _starters.add(completer);
+  }
+
+  /// 添加退出监听器
+  void listenExit(ExitEvent event) {
+    assert(null != event, 'Parameter must not be null');
+
+    _exitListeners.add(event);
   }
 
   /// 是否Starters全部准备好
