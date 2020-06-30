@@ -213,7 +213,7 @@ class ApplicationContext {
     });
     int retry = classMirrors.length;
     while (classMirrors.isNotEmpty) {
-      assert(retry >= 0, 'Retry initial annotated mirrors failed!');
+      assert(retry >= 0, 'Retry annotated mirrors failed!');
 
       ClassMirror dm = classMirrors.removeFirst();
       try {
