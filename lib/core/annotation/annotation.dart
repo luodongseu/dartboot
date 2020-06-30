@@ -1,5 +1,7 @@
 library annotation;
 
+part 'bean.dart';
+
 part 'body.dart';
 
 part 'boot_context.dart';

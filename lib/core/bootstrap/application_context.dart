@@ -39,6 +39,9 @@ class ApplicationContext {
   /// 配置文件路径
   String _configFilePath;
 
+  /// 所有的Bean
+  List<InstanceMirror> _beans = [];
+
   /// 所有的控制器
   List<InstanceMirror> _controllers = [];
 
@@ -169,9 +172,7 @@ class ApplicationContext {
     });
   }
 
-  /// 扫描Bean
-  ///
-  /// 包含： [RestController]
+  /// 扫描带注解的所有dart类
   _scanBeans() async {
     // 1. Create BuildContext instance which created by build_runner
     // Dynamic import all controller classes
@@ -184,7 +185,8 @@ class ApplicationContext {
     // 所有的镜像
     List<InstanceMirror> allMirrors = _loadAllAnnotatedMirrors();
 
-    // 2. 扫描接口控制器
+    // 注解类
+    _handleBeans(allMirrors);
     _handleRestControllers(allMirrors);
 
     logger.info('Beans scan finished.');
@@ -192,14 +194,18 @@ class ApplicationContext {
 
   /// 加载所有的带有注解的镜子
   ///
-  /// 暂时只支持[RestController]注解
+  /// 暂时只支持[RestController]、[Bean]注解
   List<InstanceMirror> _loadAllAnnotatedMirrors() {
     List<InstanceMirror> _allInstanceMirrors = [];
+
+    // 是否为合法的对象
+    bool isLegalMirror(InstanceMirror m) =>
+        m.hasReflectee &&
+        (m.reflectee is RestController || m.reflectee is Bean);
+
     currentMirrorSystem().libraries.values.forEach((lm) {
       lm.declarations.values.forEach((dm) {
-        if (dm is ClassMirror &&
-            dm.metadata
-                .any((m) => m.hasReflectee && m.reflectee is RestController)) {
+        if (dm is ClassMirror && dm.metadata.any((m) => isLegalMirror(m))) {
           _allInstanceMirrors.add(dm.newInstance(Symbol.empty, []));
         }
       });
@@ -207,13 +213,27 @@ class ApplicationContext {
     return _allInstanceMirrors;
   }
 
-  /// 加载所有的注解了[RestController]的实例
-  Future _handleRestControllers(List<InstanceMirror> mirrors) async {
+  /// 加载所有的注解了[Bean]的实例
+  _handleBeans(List<InstanceMirror> mirrors) {
     mirrors.forEach((im) {
-      RestController rc = im.type.metadata
-          .singleWhere((m) => m.reflectee is RestController)
-          .reflectee as RestController;
-      if (null != rc) {
+      bool hasAnn = im.type.metadata.any((m) => m.reflectee is Bean);
+      if (hasAnn) {
+        _beans.add(im);
+      }
+    });
+    logger.info("Bean scan finished. Total ${_beans.length} beans.");
+    _beans
+        .forEach((c) => logger.info("Bean: ${c.type.simpleName} registered."));
+  }
+
+  /// 加载所有的注解了[RestController]的实例
+  _handleRestControllers(List<InstanceMirror> mirrors) {
+    mirrors.forEach((im) {
+      bool hasAnn = im.type.metadata.any((m) => m.reflectee is RestController);
+      if (hasAnn) {
+        RestController rc = im.type.metadata
+            .singleWhere((m) => m.reflectee is RestController)
+            .reflectee as RestController;
         // 处理RestController基础的路由
         String bp = rc.basePath ?? '/';
         if (!bp.startsWith('/')) {
@@ -224,8 +244,8 @@ class ApplicationContext {
     });
     logger.info(
         "RestController scan finished. Total ${_controllers.length} controllers.");
-    _controllers
-        .forEach((c) => logger.info("RestController: ${c.type.simpleName}."));
+    _controllers.forEach(
+        (c) => logger.info("RestController: ${c.type.simpleName} registered."));
   }
 
   /// 开启http服务

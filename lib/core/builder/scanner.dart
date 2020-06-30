@@ -10,6 +10,12 @@ import '../annotation/annotation.dart';
 const TypeChecker restControllerChecker =
     TypeChecker.fromRuntime(RestController);
 
+/// [Bean]Bean类的扫描器
+const TypeChecker beanControllerChecker = TypeChecker.fromRuntime(Bean);
+
+/// 支持的扫描器
+const supportCheckers = [restControllerChecker, beanControllerChecker];
+
 /// 扫描器
 ///
 /// 负责扫描所有内置注解下的类，然后记录类的包路径
@@ -27,8 +33,8 @@ class Scanner implements Generator {
   @override
   FutureOr<String> generate(LibraryReader library, BuildStep buildStep) {
     for (ClassElement clazz in library.classes) {
-      /// 扫描 [RestController] 注解类
-      if (restControllerChecker.hasAnnotationOf(clazz)) {
+      // 扫描注解类
+      if (supportCheckers.any((c) => c.hasAnnotationOf(clazz))) {
         final source = clazz.librarySource ?? clazz.source;
         if (null != source && !source.isInSystemLibrary) {
           _annotationUris.add(source.uri.toString());
