@@ -125,11 +125,11 @@ class ClickHouseClient {
 
   /// 执行单个sql，获取响应结果并记录时间
   Future<Response> _getResponse(String sql, ResponseType responseType) async {
-    logger.debug('Ch start run single sql -> $sql ...');
+    logger.info('Ch start run single sql -> $sql ...');
     int _sm = DateTime.now().millisecondsSinceEpoch;
     Response response = await retry(
             () => _httpClient.post(_chHttpUrl,
-            data: '$sql'.toLowerCase(),
+            data: '$sql',
             options: Options(contentType: 'text', responseType: responseType)),
         maxAttempts: 5, onRetry: (e) {
       logger.debug("Ch sql [$sql] retry execute for "
