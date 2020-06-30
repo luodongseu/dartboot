@@ -7,7 +7,6 @@ import 'dart:mirrors';
 import 'package:yaml/yaml.dart';
 
 import '../annotation/annotation.dart';
-import '../database/clickhouse.dart';
 import '../eureka/eureka.dart';
 import '../log/log_system.dart';
 import '../log/logger.dart';
@@ -101,11 +100,6 @@ class ApplicationContext {
     // register eureka if need
     if (isNotEmpty(this['eureka'])) {
       await EurekaClient.createSync(this['eureka.zone']);
-    }
-
-    // init clickhouse if need
-    if (isNotEmpty(this['database.clickhouse'])) {
-      await ClickHouseDataBase.createSync();
     }
 
     // 开启服务
@@ -202,7 +196,7 @@ class ApplicationContext {
     // 是否为合法的对象
     bool isLegalMirror(InstanceMirror m) =>
         m.hasReflectee &&
-        (m.reflectee is RestController || m.reflectee is Bean);
+            (m.reflectee is RestController || m.reflectee is Bean);
     Queue<ClassMirror> classMirrors = Queue();
     currentMirrorSystem().libraries.values.forEach((lm) {
       lm.declarations.values.forEach((dm) {
@@ -267,7 +261,7 @@ class ApplicationContext {
     logger.info(
         "RestController scan finished. Total ${_controllers.length} controllers.");
     _controllers.forEach(
-        (c) => logger.info("RestController: ${c.type.simpleName} registered."));
+            (c) => logger.info("RestController: ${c.type.simpleName} registered."));
   }
 
   /// 开启http服务

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:dio/dio.dart';
 
+import '../annotation/annotation.dart' hide ResponseType;
 import '../bootstrap/application_context.dart';
 import '../error/custom_error.dart';
 import '../log/logger.dart';
@@ -11,7 +12,8 @@ import 'pageable.dart';
 /// Clickhouse的数据库客户端
 ///
 /// @author luodongseu
-class ClickHouseDataBase {
+@Bean(conditionOnProperty: 'database.clickhouse')
+class ClickHouseClient {
   static Log logger = Log('ClickHouseDataBase');
 
   /// 主机IP
@@ -27,42 +29,18 @@ class ClickHouseDataBase {
   static Dio _httpClient;
 
   /// 全局唯一实例
-  static ClickHouseDataBase _instance = null;
+  static ClickHouseClient _instance = null;
 
-  static get instance {
-    if (null == _instance) {
-      throw CustomError('请先初始化ClickHouse客户端');
-    }
-    return _instance;
-  }
-
-  static Future<ClickHouseDataBase> createSync() async {
-    if (null != _instance) {
-      return _instance;
-    }
-    String host =
+  ClickHouseClient() {
+    _instance = this;
+    _host =
         ApplicationContext.instance['database.clickhouse.host'] ?? '127.0.0.1';
-    int port = int.parse(
+    _port = int.parse(
         '${ApplicationContext.instance['database.clickhouse.port'] ?? 8123}');
-    _instance = ClickHouseDataBase(host: host, port: port);
-
-    await _instance.execute('select 1');
-
-    logger.info("Clickhouse server:[$host:$port] connected.");
-
-    return _instance;
-  }
-
-  ClickHouseDataBase({String host, int port}) {
-    if (null != host) {
-      _host = host;
-    }
-    if (null != port) {
-      _port = port;
-    }
     _chHttpUrl = 'http://$_host:$_port/';
 
-    logger.info("Start to connect clickhouse server:[$_host:$_port]...");
+    logger.info(
+        "Start to connect clickhouse client to server:[$_host:$_port]...");
 
     _httpClient =
         Dio(BaseOptions(contentType: 'application/json;charset=UTF-8'));
@@ -70,7 +48,14 @@ class ClickHouseDataBase {
       logger.error('Run sql failed [$e].', e.error);
       return null;
     }));
+
+    _instance.execute('select 1').then((v) {
+      logger.info(
+          "Clickhouse client connected to server:[$_host:$_port] success.");
+    });
   }
+
+  static get instance => _instance;
 
   /// 执行SQL语句
   ///
