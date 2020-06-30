@@ -31,8 +31,8 @@ class ClickHouseDataBase {
 
   static get instance {
     if (null == _instance) {
-      String host = null;
-      int port = null;
+      String host;
+      int port;
       dynamic database = ApplicationContext.instance['database'];
       if (null != database && null != database['clickhouse']) {
         host = database['clickhouse']['host'];
