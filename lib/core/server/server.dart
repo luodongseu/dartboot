@@ -7,6 +7,7 @@ import 'dart:mirrors';
 
 import '../annotation/annotation.dart';
 import '../bootstrap/application_context.dart';
+import '../database/pageable.dart';
 import '../error/custom_error.dart';
 import '../log/logger.dart';
 import '../util/string.dart';
@@ -101,13 +102,8 @@ class Server {
 
           // 原始路径
           String originPath = bp;
-          if (originPath.endsWith('/') && g.path.startsWith('/')) {
-            originPath += g.path.substring(1);
-          } else if (!originPath.endsWith('/') && !g.path.startsWith('/')) {
-            originPath += '/' + g.path.substring(1);
-          } else {
-            originPath += g.path;
-          }
+          originPath += '/' + g.path;
+          originPath = formatUrlPath(originPath);
           if (originPath.length > 1 && originPath.endsWith('/')) {
             originPath = originPath.substring(0, originPath.length - 1);
           }
@@ -186,8 +182,10 @@ class Server {
     // // handle errors to response 500 or 404
     _server.listen((request) =>
         runZoned(() => _receiveRequest(request), onError: (e) async {
-          logger.error('Request [${request.method} ${request.uri.path}] error:'
-              ' $e');
+          logger.error(
+              'Request [${request.method} ${request.uri.path}] failed.',
+              e is Error ? e.toString() : e,
+              e is Error ? e.stackTrace : null);
           try {
             _sendError(request, CustomError(e.toString()));
           } catch (e) {
@@ -434,7 +432,8 @@ class Server {
       case ResponseType.json:
       default:
         contentType = 'application/json';
-        body = json.encode(data ?? {});
+        body = jsonEncode(data is Pageable ? data.toJson() : (data ?? {}),
+            toEncodable: (o) => o is DateTime ? o.millisecondsSinceEpoch : o);
         break;
     }
     request.response.headers
