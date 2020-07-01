@@ -32,7 +32,13 @@ class MysqlClientHelper {
   }
 
   /// 获取Mysql连接客户端
-  static Future<MysqlConnection2> getClient({String id}) {
+  ///
+  /// Usage:
+  /// ```
+  /// MysqlClientHelper.getClient().then();
+  /// MysqlClientHelper.getClient('dev').then();
+  /// ```
+  static Future<MysqlConnection2> getClient([String id]) {
     assert(_instance._pools.isNotEmpty, '暂未配置任何数据库连接池');
 
     if (isEmpty(id)) {
