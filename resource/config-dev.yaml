@@ -12,10 +12,11 @@ database:
     host: 192.168.1.225
     port: 8123
   mysql:
-    host: 192.168.1.225
-    port: 3306
-    db: dev
-    username: root
-    password: root
-    min-pool-size: 20
-    max-pool-size: 50
+    dev: # 数据库ID
+      host: 192.168.1.225
+      port: 3306
+      db: dev
+      username: root
+      password: root
+      min-pool-size: 20
+      max-pool-size: 50

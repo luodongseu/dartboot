@@ -12,10 +12,11 @@ database:
     host: xxx.xxx.x.xx
     port: 8123
   mysql:
-    host: xxx.xxx.x.xx
-    port: 3306
-    db: xxx
-    username: xxx
-    password: xxx
-    min-pool-size: 20
-    max-pool-size: 50
+    prod: # 数据库ID
+      host: xxx.xxx.x.xx
+      port: 3306
+      db: xx
+      username: xx
+      password: xx
+      min-pool-size: 20
+      max-pool-size: 50
