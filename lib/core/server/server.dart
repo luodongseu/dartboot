@@ -81,7 +81,7 @@ class Server {
         Map<Symbol, MethodMirror> methods = controller.type.instanceMembers;
         methods.forEach((s, m) {
           bool hasHttpMethod = m.metadata.any((mm) =>
-          mm.hasReflectee &&
+              mm.hasReflectee &&
               (mm.reflectee is Get ||
                   mm.reflectee is Post ||
                   mm.reflectee is Delete));
@@ -144,7 +144,7 @@ class Server {
           }
           logger.info(
               "Bind api:[${requestPath.method?.toString()?.replaceAll('HttpMethod.', '') ?? 'GET'} $originPath] to "
-                  "controller:[${requestPath.controllerMirror.type.simpleName}]");
+              "controller:[${requestPath.controllerMirror.type.simpleName}]");
         });
       }
     });
@@ -235,8 +235,8 @@ class Server {
       // 找到了全路径匹配
       List<RequestPath> requestPaths = _staticPathMap[reqPath];
       RequestPath backendPath = requestPaths.firstWhere(
-              (rp) =>
-          '${rp.method}'.replaceAll('HttpMethod.', '').toUpperCase() ==
+          (rp) =>
+              '${rp.method}'.replaceAll('HttpMethod.', '').toUpperCase() ==
               request.method,
           orElse: () => null);
       if (null != backendPath) {
@@ -249,8 +249,8 @@ class Server {
     // 2. 找动态路径
     int psNum = reqPath.substring(1).split('/').length;
     RequestPath backendPath = _dynamicPaths.firstWhere(
-            (rp) =>
-        rp.nodes.length == psNum &&
+        (rp) =>
+            rp.nodes.length == psNum &&
             '${rp.method}'.replaceAll('HttpMethod.', '').toUpperCase() ==
                 request.method &&
             rp.regexPath.hasMatch(reqPath),
@@ -299,7 +299,7 @@ class Server {
       // Path
       var value;
       InstanceMirror pathAnnotation = p.metadata.firstWhere(
-              (pm) => pm.hasReflectee && pm.reflectee is Path,
+          (pm) => pm.hasReflectee && pm.reflectee is Path,
           orElse: () => null);
       if (null != pathAnnotation) {
         final String vn = (pathAnnotation.reflectee as Path).name;
@@ -312,25 +312,26 @@ class Server {
 
       // Query
       InstanceMirror queryAnnotation = p.metadata.firstWhere(
-              (pm) => pm.hasReflectee && pm.reflectee is Query,
+          (pm) => pm.hasReflectee && pm.reflectee is Query,
           orElse: () => null);
       if (null != queryAnnotation) {
-        final String vn = (queryAnnotation.reflectee as Query).name;
-        final bool required = (queryAnnotation.reflectee as Query).required;
+        Query query = queryAnnotation.reflectee as Query;
+        final String vn = query.name;
+        final bool required = query.required;
         bool queryExists =
             request.uri?.queryParameters?.containsKey(vn) ?? false;
         if (required && !queryExists) {
           _send404(request);
           return;
         }
-        value = request.uri?.queryParameters[vn] ?? '';
-        params.add(convertParameter(value, p));
+        value = request.uri?.queryParameters[vn];
+        params.add(convertParameter(value, p, query.defaultValue));
         continue;
       }
 
       // Header
       InstanceMirror headerAnnotation = p.metadata.firstWhere(
-              (pm) => pm.hasReflectee && pm.reflectee is Header,
+          (pm) => pm.hasReflectee && pm.reflectee is Header,
           orElse: () => null);
       if (null != headerAnnotation) {
         final String vn = (headerAnnotation.reflectee as Header).name;
@@ -341,7 +342,7 @@ class Server {
 
       // Body
       InstanceMirror bodyAnnotation = p.metadata.firstWhere(
-              (pm) => pm.hasReflectee && pm.reflectee is Body,
+          (pm) => pm.hasReflectee && pm.reflectee is Body,
           orElse: () => null);
       if (null != bodyAnnotation) {
         StringBuffer buffer = await Encoding.getByName('utf-8')
@@ -368,22 +369,24 @@ class Server {
   }
 
   /// 解析参数类型
-  dynamic convertParameter(String value, ParameterMirror p) {
-    if (isEmpty(value)) {
-      return null;
-    }
+  dynamic convertParameter(String value, ParameterMirror p,
+      [dynamic defaultValue]) {
     String reflectType = p.type?.reflectedType?.toString() ?? 'String';
     switch (reflectType) {
       case 'int':
-        return int.parse(value);
+        return isEmpty(value) ? defaultValue : int.parse(value);
       case 'double':
-        return double.parse(value);
+        return isEmpty(value) ? defaultValue : double.parse(value);
       case 'num':
-        return num.parse(value);
+        return isEmpty(value) ? defaultValue : num.parse(value);
       case 'bool':
-        return value == 'true' || value == '1';
+        return isEmpty(value)
+            ? defaultValue
+            : (value == 'true' || value == '1');
       case 'bigint':
-        return BigInt.parse(value);
+        return isEmpty(value) ? defaultValue : BigInt.parse(value);
+      case 'List':
+        return isEmpty(value) ? defaultValue : value.split(',');
     }
     return value;
   }
