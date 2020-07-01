@@ -1,5 +1,7 @@
 library annotation;
 
+part 'api.dart';
+
 part 'bean.dart';
 
 part 'body.dart';
