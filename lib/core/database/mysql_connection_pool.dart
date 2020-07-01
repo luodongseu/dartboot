@@ -6,7 +6,9 @@ import 'package:mysql1/src/single_connection.dart';
 import '../error/custom_error.dart';
 import '../log/logger.dart';
 import '../util/date.dart';
+import '../util/string.dart';
 import '../util/uid.dart';
+import 'pageable.dart';
 
 /// 事务的调度器
 typedef TransactionCaller = Function(TransactionContext);
@@ -405,4 +407,53 @@ class MysqlConnection2 {
       _state = ConnectionState.STATE_NOT_IN_USE;
     }
   }
+
+  /// 执行查询单个的SQL语句，返回json对象
+  Future<dynamic> findOne(String sql, [List<Object> values]) async {
+    Results results = await query(sql, values);
+    List<String> cols = results.fields.map((f) => f.name).toList();
+    return rowMapper(cols, results.first);
+  }
+
+  /// 执行SQL语句，返回List json对象
+  Future<List<dynamic>> execute(String sql, [List<Object> values]) async {
+    Results results = await query(sql, values);
+    List<String> cols = results.fields.map((f) => f.name).toList();
+    return rowsMapper(cols, results.toList());
+  }
+
+  /// 执行分页查询语句，返回PageImpl对象
+  Future<PageImpl<dynamic>> executePage(String sql, PageRequest page,
+      [List<Object> values]) async {
+    assert(isNotEmpty(sql), 'Sql must not be empty.');
+    assert(null != page, 'Page must not be null.');
+
+    // page 数据查询sql
+    String pageSql = '$sql limit ${page.page},${page.limit}';
+    // total 计数查询sql
+    String totalSql = 'select count(*) from ($sql) $uid4';
+    // 同步处理
+    var res = await Future.wait(
+        [execute(pageSql, values), findOne(totalSql, values)]);
+    List<dynamic> rows = res[0] ?? [];
+    int total = res[1]['count(*)'] ?? 0;
+
+    return PageImpl(rows, page.page, page.limit, total);
+  }
+}
+
+/// Rows -> List<json>
+List<dynamic> rowsMapper(List<String> cols, List<Row> rows) {
+  if (isEmpty(rows)) return [];
+  return rows.map((r) => rowMapper(cols, r)).toList();
+}
+
+/// Row -> json
+dynamic rowMapper(List<String> cols, Row row) {
+  if (null == row) return null;
+  dynamic result = {};
+  for (int i = 0; i < cols.length; i++) {
+    result[cols[i]] = row[i];
+  }
+  return result;
 }
