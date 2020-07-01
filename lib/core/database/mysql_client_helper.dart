@@ -39,13 +39,13 @@ class MysqlClientHelper {
   /// MysqlClientHelper.getClient('dev').then();
   /// ```
   static Future<MysqlConnection2> getClient([String id]) {
-    assert(_instance._pools.isNotEmpty, '暂未配置任何数据库连接池');
+    assert(_instance._pools.isNotEmpty, 'No any mysql configured.');
 
     if (isEmpty(id)) {
       return _instance._pools.values.elementAt(0).getConnection();
     }
 
-    assert(_instance._pools.containsKey(id), '暂未配置数据库[$id]');
+    assert(_instance._pools.containsKey(id), 'Not found mysql:[$id] configuration.');
     return _instance._pools[id].getConnection();
   }
 }
