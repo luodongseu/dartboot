@@ -479,7 +479,6 @@ class MysqlConnection2 {
           .where((dm) => dm is VariableMirror && !dm.isFinal && !dm.isConst);
       row.fields.forEach((k, value) {
         // 先匹配原始字段名
-        print(variables);
         if (variables.any((v) => MirrorSystem.getName(v.simpleName) == k)) {
           rm.setField(Symbol(k), value);
           return;
