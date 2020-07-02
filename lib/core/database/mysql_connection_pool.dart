@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:mirrors';
 
 import 'package:mysql1/mysql1.dart';
 import 'package:mysql1/src/single_connection.dart';
@@ -94,7 +95,7 @@ class MysqlConnectionPool {
         minSize: int.parse('${mysqlConfig['minPoolSize'] ?? 5}'),
         maxSize: int.parse('${mysqlConfig['maxPoolSize'] ?? 30}'),
         testQueryPeriodMills:
-            int.parse('${mysqlConfig['testQueryPeriodMills'] ?? 30000}'));
+        int.parse('${mysqlConfig['testQueryPeriodMills'] ?? 30000}'));
   }
 
   /// 创建新的线程池
@@ -113,19 +114,19 @@ class MysqlConnectionPool {
   /// ```
   MysqlConnectionPool(
       {this.host = '127.0.0.1',
-      this.port = 3306,
-      this.username,
-      this.password,
-      this.db = 'default',
-      this.minSize = 5,
-      this.maxSize = 30,
-      this.queryTimeout,
-      int testQueryPeriodMills = defaultTestQueryPeriodMills,
-      this.testSql = 'select 1'}) {
+        this.port = 3306,
+        this.username,
+        this.password,
+        this.db = 'default',
+        this.minSize = 5,
+        this.maxSize = 30,
+        this.queryTimeout,
+        int testQueryPeriodMills = defaultTestQueryPeriodMills,
+        this.testSql = 'select 1'}) {
     assert(minSize > 0, 'Min pool size must greater than zero');
     assert(maxSize > minSize, 'Max pool size must greater than min pool size');
     assert(testQueryPeriodMills > 1000,
-        'Test query period must greater than 1 second');
+    'Test query period must greater than 1 second');
     _testQueryPeriodDuration = Duration(milliseconds: testQueryPeriodMills);
     init();
   }
@@ -285,8 +286,8 @@ class MysqlConnectionPool {
     try {
       await conn.query(testSql ?? 'select 1').timeout(testTimeout,
           onTimeout: () {
-        throw TimeoutException('Execute test sql:[$testSql] timeout.');
-      });
+            throw TimeoutException('Execute test sql:[$testSql] timeout.');
+          });
       return true;
     } catch (e) {
       return false;
@@ -409,21 +410,27 @@ class MysqlConnection2 {
   }
 
   /// 执行查询单个的SQL语句，返回json对象
-  Future<dynamic> findOne(String sql, [List<Object> values]) async {
+  Future<dynamic> findOne<R>(String sql, [List<Object> values]) async {
     Results results = await query(sql, values);
+    if (R != dynamic) {
+      return resultsMapper<R>(results)?.first;
+    }
     List<String> cols = results.fields.map((f) => f.name).toList();
     return rowMapper(cols, results.first);
   }
 
   /// 执行SQL语句，返回List json对象
-  Future<List<dynamic>> execute(String sql, [List<Object> values]) async {
+  Future<List<R>> execute<R>(String sql, [List<Object> values]) async {
     Results results = await query(sql, values);
+    if (R != dynamic) {
+      return resultsMapper<R>(results);
+    }
     List<String> cols = results.fields.map((f) => f.name).toList();
     return rowsMapper(cols, results.toList());
   }
 
   /// 执行分页查询语句，返回PageImpl对象
-  Future<PageImpl<dynamic>> executePage(String sql, PageRequest page,
+  Future<PageImpl<R>> executePage<R>(String sql, PageRequest page,
       [List<Object> values]) async {
     assert(isNotEmpty(sql), 'Sql must not be empty.');
     assert(null != page, 'Page must not be null.');
@@ -431,29 +438,62 @@ class MysqlConnection2 {
     // page 数据查询sql
     String pageSql = '$sql limit ${page.page},${page.limit}';
     // total 计数查询sql
-    String totalSql = 'select count(*) from ($sql) $uid4';
+    String totalSql = 'select count(*) from ($sql) _t_$uid4';
     // 同步处理
     var res = await Future.wait(
-        [execute(pageSql, values), findOne(totalSql, values)]);
+        [execute<R>(pageSql, values), findOne(totalSql, values)]);
     List<dynamic> rows = res[0] ?? [];
     int total = res[1]['count(*)'] ?? 0;
 
     return PageImpl(rows, page.page, page.limit, total);
   }
-}
 
-/// Rows -> List<json>
-List<dynamic> rowsMapper(List<String> cols, List<Row> rows) {
-  if (isEmpty(rows)) return [];
-  return rows.map((r) => rowMapper(cols, r)).toList();
-}
-
-/// Row -> json
-dynamic rowMapper(List<String> cols, Row row) {
-  if (null == row) return null;
-  dynamic result = {};
-  for (int i = 0; i < cols.length; i++) {
-    result[cols[i]] = row[i];
+  /// Rows -> List<json>
+  List<dynamic> rowsMapper(List<String> cols, List<Row> rows) {
+    if (isEmpty(rows)) return [];
+    return rows.map((r) => rowMapper(cols, r)).toList();
   }
-  return result;
+
+  /// Row -> json
+  dynamic rowMapper(List<String> cols, Row row) {
+    if (null == row) return null;
+    dynamic result = {};
+    for (int i = 0; i < cols.length; i++) {
+      result[cols[i]] = row[i];
+    }
+    return result;
+  }
+
+  /// Results -> List<Model>
+  List<R> resultsMapper<R>(Results results) {
+    TypeMirror typeMirror = reflectType(R);
+    print(typeMirror);
+    if (!(typeMirror is ClassMirror)) {
+      throw CustomError('Only support class type.');
+    }
+    List<R> data = [];
+    results.forEach((row) {
+      InstanceMirror rm =
+      (typeMirror as ClassMirror).newInstance(Symbol.empty, []);
+      Iterable<DeclarationMirror> variables = rm.type.declarations.values
+          .where((dm) => dm is VariableMirror && !dm.isFinal && !dm.isConst);
+      row.fields.forEach((k, value) {
+        // 先匹配原始字段名
+        print(variables);
+        if (variables.any((v) => MirrorSystem.getName(v.simpleName) == k)) {
+          rm.setField(Symbol(k), value);
+          return;
+        }
+        // 再匹配转换后(_x -> X)后的字段名
+        String fk = k.replaceAllMapped(
+            RegExp('_(.)'), (m) => '${m.group(1)}'.toUpperCase());
+        if (variables.any((v) => MirrorSystem.getName(v.simpleName) == fk)) {
+          rm.setField(Symbol(fk), value);
+          return;
+        }
+      });
+      data.add(rm.reflectee);
+    });
+    return data;
+  }
 }

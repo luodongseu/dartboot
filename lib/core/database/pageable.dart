@@ -1,3 +1,5 @@
+import 'dart:mirrors';
+
 /// 分页的抽象接口
 ///
 /// 用于处理接口分页查询
@@ -6,7 +8,6 @@
 ///
 /// @author luodongseu
 abstract class Pageable<T> {
-
   /// 当前页码，0表示第一页
   int get page;
 
@@ -23,18 +24,30 @@ abstract class Pageable<T> {
   /// [offset] = [page] * [pageSize]
   int get offset => page * pageSize;
 
-  Map<String, dynamic> toJson() =>
-      {
-        'page': page ?? 0,
-        'pageSize': pageSize ?? 0,
-        'total': total ?? 0,
-        'content': content ?? [],
-      };
+  /// JSON序列化
+  Map<String, dynamic> toJson() {
+    final List<T> contents = content ?? [];
+    List<dynamic> _contents = [];
+    TypeMirror typeMirror = reflectType(T);
+    if (typeMirror is ClassMirror &&
+        (typeMirror.instanceMembers?.containsKey(Symbol('toJson')) ?? false)) {
+      _contents.addAll(contents
+          .map((c) => reflect(c).invoke(Symbol('toJson'), []).reflectee)
+          .toList());
+    } else {
+      _contents.addAll(contents);
+    }
+    return {
+      'page': page ?? 0,
+      'pageSize': pageSize ?? 0,
+      'total': total ?? 0,
+      'content': _contents,
+    };
+  }
 }
 
 /// 分页的简单实现
 class PageImpl<T> extends Pageable<T> {
-
   final int _page;
 
   final int _pageSize;
@@ -56,7 +69,6 @@ class PageImpl<T> extends Pageable<T> {
 
   @override
   List<T> get content => _content ?? [];
-
 }
 
 /// 分页请求，用于查询参数
@@ -67,7 +79,6 @@ class PageImpl<T> extends Pageable<T> {
 /// 或者使用工厂函数构造：
 /// ``` PageRequest.of(0, 10) ```
 class PageRequest {
-
   /// 页码
   final int page;
 
@@ -82,5 +93,4 @@ class PageRequest {
   factory PageRequest.of(int page, int limit) {
     return PageRequest(page: page ?? 0, limit: limit ?? 10);
   }
-
 }
