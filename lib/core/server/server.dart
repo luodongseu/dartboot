@@ -354,16 +354,27 @@ class Server {
       params.add(null);
     }
 
+    // 开始时间
+    int start = DateTime.now().millisecondsSinceEpoch;
+    logger.debug('Start to invoke api:[$reqPath]\'s controller function...');
+
     // 反射接口函数
     dynamic data = backendPath.controllerMirror
         .invoke(backendPath.methodMirror.simpleName, params)
         .reflectee;
+    var result;
     if (data is Future) {
-      var result = await data;
-      _sendResponse(request, backendPath, result);
+      result = await data;
     } else {
-      _sendResponse(request, backendPath, data);
+      result = data;
     }
+
+    // 结束时间
+    int end = DateTime.now().millisecondsSinceEpoch;
+    logger.debug(
+        'Api:[$reqPath]\'s controller function invoked sucessfuly in [${end - start}] mills.');
+
+    _sendResponse(request, backendPath, result);
   }
 
   /// 解析参数类型
