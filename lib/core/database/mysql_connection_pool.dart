@@ -409,6 +409,22 @@ class MysqlConnection2 {
     }
   }
 
+  /// 执行计数的SQL
+  Future<int> count(String sql, [List<Object> values]) async {
+    if (!sql.startsWith(RegExp('\\s*select\\s+count\(.+\)\\s+from'))) {
+      return countSubQuery(sql, values);
+    }
+    Results results = await query(sql, values);
+    return int.parse('${results.first[0] ?? 0}');
+  }
+
+  /// 执行计数的SQL（子查询）
+  Future<int> countSubQuery(String sql, [List<Object> values]) async {
+    String totalSql = 'select count(*) from ($sql) _t_$uid4';
+    Results results = await query(totalSql, values);
+    return results.first[0] ?? 0;
+  }
+
   /// 执行查询单个的SQL语句，返回json对象
   Future<dynamic> findOne<R>(String sql, [List<Object> values]) async {
     Results results = await query(sql, values);
@@ -435,15 +451,12 @@ class MysqlConnection2 {
     assert(isNotEmpty(sql), 'Sql must not be empty.');
     assert(null != page, 'Page must not be null.');
 
-    // page 数据查询sql
     String pageSql = '$sql limit ${page.page},${page.limit}';
-    // total 计数查询sql
-    String totalSql = 'select count(*) from ($sql) _t_$uid4';
     // 同步处理
-    var res = await Future.wait(
-        [execute<R>(pageSql, values), findOne(totalSql, values)]);
+    var res =
+    await Future.wait([execute<R>(pageSql, values), count(sql, values)]);
     List<dynamic> rows = res[0] ?? [];
-    int total = res[1]['count(*)'] ?? 0;
+    int total = res[1];
 
     return PageImpl(rows, page.page, page.limit, total);
   }
@@ -467,7 +480,6 @@ class MysqlConnection2 {
   /// Results -> List<Model>
   List<R> resultsMapper<R>(Results results) {
     TypeMirror typeMirror = reflectType(R);
-    print(typeMirror);
     if (!(typeMirror is ClassMirror)) {
       throw CustomError('Only support class type.');
     }
