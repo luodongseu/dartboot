@@ -1,5 +1,3 @@
-part of annotation;
-
 const body = Body();
 
 /// @Annotation Body

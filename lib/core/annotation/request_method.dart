@@ -1,5 +1,3 @@
-part of annotation;
-
 /// Http请求方式
 ///
 /// [GET] 查询数据

@@ -1,5 +1,3 @@
-part of annotation;
-
 /// 表的字段配置
 class Column {
   /// 字段名称

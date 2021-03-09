@@ -1,5 +1,3 @@
-part of annotation;
-
 /// ====================================================
 /// @Annotation BootContext
 ///

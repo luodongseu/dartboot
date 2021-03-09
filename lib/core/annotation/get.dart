@@ -1,5 +1,6 @@
-part of annotation;
-
+import 'request.dart';
+import 'response_type.dart';
+import 'request_method.dart';
 /// @Annotation Get
 ///
 /// 查询请求的注解

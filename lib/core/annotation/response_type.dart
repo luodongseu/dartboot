@@ -1,5 +1,3 @@
-part of annotation;
-
 /// 响应体的类型
 ///
 /// [html] -> text/html

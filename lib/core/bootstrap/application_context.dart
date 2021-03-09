@@ -6,14 +6,13 @@ import 'dart:mirrors';
 
 import 'package:logging/logging.dart';
 import 'package:yaml/yaml.dart';
-
-import '../annotation/annotation.dart';
+import '../error/custom_error.dart';
 import '../eureka/eureka.dart';
 import '../log/log_system.dart';
 import '../log/logger.dart';
 import '../server/server.dart';
 import '../util/string.dart';
-import '../error/custom_error.dart';
+import '../annotation/annotation.dart';
 import 'application_context.g.dart' deferred as gContext;
 
 typedef ExitEvent = Function();
@@ -311,9 +310,11 @@ class ApplicationContext {
     List<InstanceMirror> _allControllerInstanceMirrors = [];
 
     // 是否为合法的对象
-    bool isLegalMirror(InstanceMirror m) =>
-        m.hasReflectee &&
-        (m.reflectee is RestController || m.reflectee is Bean);
+    bool isLegalMirror(InstanceMirror m) {
+      return  m.hasReflectee &&
+          (m.reflectee is RestController || m.reflectee is Bean);
+    }
+       
     Queue<ClassMirror> classMirrors = Queue();
     currentMirrorSystem().libraries.values.forEach((lm) {
       lm.declarations.values.forEach((dm) {

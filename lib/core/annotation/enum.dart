@@ -1,5 +1,3 @@
-part of annotation;
-
 /// 枚举的Annotation
 class Enum {
   /// 枚举配置

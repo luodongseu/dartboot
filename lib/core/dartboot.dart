@@ -1,8 +1,6 @@
-library dartboot;
-
 import 'dart:async';
 
-import 'bootstrap/application_context.dart';
+import './bootstrap/application_context.dart';
 
 ////////////////////////////////////////////////////////////
 /// Dart的快速启动入口类
@@ -13,8 +11,10 @@ import 'bootstrap/application_context.dart';
 /// @author luodongseu
 ////////////////////////////////////////////////////////////
 class DartBootApplication {
-  static Future run({String propertiesFilePath}) async {
-    ApplicationContext context = ApplicationContext();
+  static Future run(
+      {String rootPath, String propertiesFilePath, List<String> args}) async {
+    ApplicationContext context =
+        ApplicationContext(rootPath: rootPath, runArgs: args);
     context.initialize();
   }
 }

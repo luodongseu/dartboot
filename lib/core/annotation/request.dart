@@ -1,5 +1,5 @@
-part of annotation;
-
+import './response_type.dart';
+import './request_method.dart';
 /// @Annotation Request
 ///
 /// 超类：请求的注解

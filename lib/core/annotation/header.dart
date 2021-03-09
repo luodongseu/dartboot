@@ -1,5 +1,3 @@
-part of annotation;
-
 /// @Annotation Header
 ///
 /// 请求头的注解，用于接口函数的参数中接收请求头

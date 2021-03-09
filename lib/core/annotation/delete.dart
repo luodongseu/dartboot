@@ -1,5 +1,6 @@
-part of annotation;
-
+import 'request.dart';
+import 'response_type.dart';
+import 'request_method.dart';
 /// @Annotation Delete
 ///
 /// 删除请求的注解

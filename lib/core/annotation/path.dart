@@ -1,5 +1,3 @@
-part of annotation;
-
 /// @Annotation Path
 ///
 /// 在接口函数的参数中获取路径参数，[name]表示参数名称

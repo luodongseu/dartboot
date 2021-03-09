@@ -1,5 +1,3 @@
-part of annotation;
-
 /// @Annotation Api
 ///
 /// 接口描述的注解

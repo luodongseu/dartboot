@@ -1,5 +1,3 @@
-part of annotation;
-
 /// @Annotation Query
 ///
 /// 查询参数的注解，用于获取接口携带的查询参数

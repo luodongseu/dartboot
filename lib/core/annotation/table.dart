@@ -1,5 +1,3 @@
-part of annotation;
-
 /// 表的Annotation
 class Table {
   /// 表名称
