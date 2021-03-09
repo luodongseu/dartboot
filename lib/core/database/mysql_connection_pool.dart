@@ -1,15 +1,18 @@
 import 'dart:async';
-import 'dart:mirrors';
 
 import 'package:mysql1/mysql1.dart';
 import 'package:mysql1/src/single_connection.dart';
-
+import '../bootstrap/application_context.dart';
 import '../error/custom_error.dart';
 import '../log/logger.dart';
 import '../util/date.dart';
 import '../util/string.dart';
 import '../util/uid.dart';
+import 'model_utils.dart';
 import 'pageable.dart';
+
+/// 测试连接的sql
+const testConnectionSql = 'select 1';
 
 /// 事务的调度器
 typedef TransactionCaller = Function(TransactionContext);
@@ -21,10 +24,10 @@ const int defaultTestQueryPeriodMills = 30 * 1000;
 const Duration testTimeout = const Duration(milliseconds: 500);
 
 /// 默认查询timeout
-const Duration defaultQueryTimeout = const Duration(seconds: 30);
+const Duration defaultQueryTimeout = const Duration(seconds: 300);
 
 /// 默认查询timeout
-const Duration defaultConnectionTimeout = const Duration(seconds: 5);
+const Duration defaultConnectionTimeout = const Duration(seconds: 30);
 
 /// Mysql客户端的线程池
 ///
@@ -36,7 +39,7 @@ const Duration defaultConnectionTimeout = const Duration(seconds: 5);
 /// MysqlConnectionPool.create({host:'',port:''}).then((p) => pool = p);
 /// ```
 ///
-/// @author luodong
+/// @author luodongseu
 class MysqlConnectionPool {
   Log logger = Log('MysqlConnectionPool');
 
@@ -60,9 +63,6 @@ class MysqlConnectionPool {
 
   /// 最小的连接输了
   final int minSize;
-
-  /// 测试连接的sql
-  final String testSql;
 
   /// 查询的timeout
   final Duration queryTimeout;
@@ -95,7 +95,7 @@ class MysqlConnectionPool {
         minSize: int.parse('${mysqlConfig['minPoolSize'] ?? 5}'),
         maxSize: int.parse('${mysqlConfig['maxPoolSize'] ?? 30}'),
         testQueryPeriodMills:
-        int.parse('${mysqlConfig['testQueryPeriodMills'] ?? 30000}'));
+            int.parse('${mysqlConfig['testQueryPeriodMills'] ?? 30000}'));
   }
 
   /// 创建新的线程池
@@ -112,21 +112,21 @@ class MysqlConnectionPool {
   /// var c = await pool.getConnection();
   /// c.query('select * from test limit 1');
   /// ```
-  MysqlConnectionPool(
-      {this.host = '127.0.0.1',
-        this.port = 3306,
-        this.username,
-        this.password,
-        this.db = 'default',
-        this.minSize = 5,
-        this.maxSize = 30,
-        this.queryTimeout,
-        int testQueryPeriodMills = defaultTestQueryPeriodMills,
-        this.testSql = 'select 1'}) {
+  MysqlConnectionPool({
+    this.host = '127.0.0.1',
+    this.port = 3306,
+    this.username,
+    this.password,
+    this.db = 'default',
+    this.minSize = 5,
+    this.maxSize = 30,
+    this.queryTimeout,
+    int testQueryPeriodMills = defaultTestQueryPeriodMills,
+  }) {
     assert(minSize > 0, 'Min pool size must greater than zero');
     assert(maxSize > minSize, 'Max pool size must greater than min pool size');
     assert(testQueryPeriodMills > 1000,
-    'Test query period must greater than 1 second');
+        'Test query period must greater than 1 second');
     _testQueryPeriodDuration = Duration(milliseconds: testQueryPeriodMills);
     init();
   }
@@ -270,11 +270,14 @@ class MysqlConnectionPool {
   /// 3. 否则[createConnectionAndAdd2Pool]创建新的连接
   acquireConnection() async {
     MysqlConnection2 c = getFreeConnectionInPool();
-    if (null != c || _pool.length >= maxSize) {
+    if ((await isConnectionAlive(c)) && null != c || _pool.length >= maxSize) {
       return c;
     }
+
     // scale
-    return await _createConnectionAndAdd2Pool();
+    MysqlConnection2 nc = await _createConnectionAndAdd2Pool();
+    Future.delayed(Duration.zero, _cleanPool);
+    return nc;
   }
 
   /// 判断连接是否存活
@@ -284,12 +287,13 @@ class MysqlConnectionPool {
       return false;
     }
     try {
-      await conn.query(testSql ?? 'select 1').timeout(testTimeout,
-          onTimeout: () {
-            throw TimeoutException('Execute test sql:[$testSql] timeout.');
-          });
+      await conn.query(testConnectionSql).timeout(testTimeout, onTimeout: () {
+        throw TimeoutException(
+            'Execute test sql:[$testConnectionSql] timeout.');
+      });
       return true;
     } catch (e) {
+      conn.state = ConnectionState.STATE_REMOVED;
       return false;
     }
   }
@@ -353,7 +357,14 @@ class MysqlConnection2 {
 
   /// 查询单个数据
   Future<Results> query(String sql, [List<Object> values]) async {
-    logger.debug('## Sql execution: [${sql}]');
+    bool printSql =
+        '${ApplicationContext.instance['database.mysql.print-sql']}' == 'true';
+    if (printSql && sql != testConnectionSql) {
+      logger.info('Mysql start run sql -> ${sql} ...');
+    } else {
+      logger.debug('Mysql start run sql -> ${sql} ...');
+    }
+    int s = DateTime.now().millisecondsSinceEpoch;
     var id = uid8;
     _executingIds.add(id);
     try {
@@ -363,22 +374,14 @@ class MysqlConnection2 {
       throw CustomError('Execute sql: [$sql] failed. $e');
     } finally {
       release(id);
-    }
-  }
-
-  /// 查询结果集
-  Future<List<Results>> queryMulti(
-      String sql, Iterable<List<Object>> values) async {
-    logger.debug('## Sql execution: [${sql}]');
-    var id = uid8;
-    _executingIds.add(id);
-    try {
-      return await connection?.queryMulti(sql, values);
-    } catch (e) {
-      logger.error('## Sql execution: [${sql}] error: $e');
-      throw CustomError('Execute sql: [$sql] failed. $e');
-    } finally {
-      release(id);
+      int e = DateTime.now().millisecondsSinceEpoch;
+      if (printSql && sql != testConnectionSql) {
+        logger.info(
+            'Mysql -> $sql [values: $values] finished in ${e - s} mills.');
+      } else {
+        logger.debug(
+            'Mysql -> $sql [values: $values] finished in ${e - s} mills.');
+      }
     }
   }
 
@@ -411,23 +414,33 @@ class MysqlConnection2 {
 
   /// 执行计数的SQL
   Future<int> count(String sql, [List<Object> values]) async {
-    if (!sql.startsWith(RegExp('\\s*select\\s+count\(.+\)\\s+from'))) {
-      return countSubQuery(sql, values);
+    String _sql = ModelUtils.formatSql(sql);
+    if (_sql.toUpperCase().contains(RegExp('ORDER BY .+ (ASC|DESC)\$'))) {
+      _sql =
+          _sql.substring(0, _sql.lastIndexOf(RegExp('[oO][rR][dD][eE][rR]')));
     }
-    Results results = await query(sql, values);
-    return int.parse('${results.first[0] ?? 0}');
+    if (!_sql.startsWith(RegExp(
+        '\\s*[sS][eE][lL][eE][cC][tT]\\s+[cC][oO][uU][nN][tT]\(.+\)\\s+[fF][rR][oO][mM]'))) {
+      return countSubQuery(_sql, values);
+    }
+    Results results = await query(_sql, values);
+    return int.parse('${results.isEmpty ? 0 : (results.first[0] ?? 0)}');
   }
 
   /// 执行计数的SQL（子查询）
   Future<int> countSubQuery(String sql, [List<Object> values]) async {
-    String totalSql = 'select count(*) from ($sql) _t_$uid4';
+    String totalSql =
+        'select count(*) from (${ModelUtils.formatSql(sql)}) _t_$uid4';
     Results results = await query(totalSql, values);
-    return results.first[0] ?? 0;
+    return results.isEmpty ? 0 : (results.first[0] ?? 0);
   }
 
   /// 执行查询单个的SQL语句，返回json对象
   Future<dynamic> findOne<R>(String sql, [List<Object> values]) async {
-    Results results = await query(sql, values);
+    Results results = await query(ModelUtils.formatSql(sql), values);
+    if (results.isEmpty) {
+      return {};
+    }
     if (R != dynamic) {
       return resultsMapper<R>(results)?.first;
     }
@@ -435,9 +448,22 @@ class MysqlConnection2 {
     return rowMapper(cols, results.first);
   }
 
+  /// 执行查询全部的SQL语句，返回List对象
+  Future<List<dynamic>> findAll<R>(String sql, [List<Object> values]) async {
+    Results results = await query(ModelUtils.formatSql(sql), values);
+    if (results.isEmpty) {
+      return [];
+    }
+    if (R != dynamic) {
+      return resultsMapper<R>(results);
+    }
+    List<String> cols = results.fields.map((f) => f.name).toList();
+    return rowsMapper(cols, results.toList());
+  }
+
   /// 执行SQL语句，返回List json对象
   Future<List<R>> execute<R>(String sql, [List<Object> values]) async {
-    Results results = await query(sql, values);
+    Results results = await query(ModelUtils.formatSql(sql), values);
     if (R != dynamic) {
       return resultsMapper<R>(results);
     }
@@ -451,10 +477,11 @@ class MysqlConnection2 {
     assert(isNotEmpty(sql), 'Sql must not be empty.');
     assert(null != page, 'Page must not be null.');
 
-    String pageSql = '$sql limit ${page.page},${page.limit}';
+    String _sql = ModelUtils.formatSql(sql);
+    String pageSql = '$_sql limit ${page.offset},${page.limit}';
     // 同步处理
     var res =
-    await Future.wait([execute<R>(pageSql, values), count(sql, values)]);
+        await Future.wait([execute<R>(pageSql, values), count(_sql, values)]);
     List<dynamic> rows = res[0] ?? [];
     int total = res[1];
 
@@ -479,32 +506,7 @@ class MysqlConnection2 {
 
   /// Results -> List<Model>
   List<R> resultsMapper<R>(Results results) {
-    TypeMirror typeMirror = reflectType(R);
-    if (!(typeMirror is ClassMirror)) {
-      throw CustomError('Only support class type.');
-    }
-    List<R> data = [];
-    results.forEach((row) {
-      InstanceMirror rm =
-      (typeMirror as ClassMirror).newInstance(Symbol.empty, []);
-      Iterable<DeclarationMirror> variables = rm.type.declarations.values
-          .where((dm) => dm is VariableMirror && !dm.isFinal && !dm.isConst);
-      row.fields.forEach((k, value) {
-        // 先匹配原始字段名
-        if (variables.any((v) => MirrorSystem.getName(v.simpleName) == k)) {
-          rm.setField(Symbol(k), value);
-          return;
-        }
-        // 再匹配转换后(_x -> X)后的字段名
-        String fk = k.replaceAllMapped(
-            RegExp('_(.)'), (m) => '${m.group(1)}'.toUpperCase());
-        if (variables.any((v) => MirrorSystem.getName(v.simpleName) == fk)) {
-          rm.setField(Symbol(fk), value);
-          return;
-        }
-      });
-      data.add(rm.reflectee);
-    });
-    return data;
+    List<dynamic> _results = results.map((r) => r.fields)?.toList() ?? [];
+    return ModelUtils.resultsMapper<R>(_results);
   }
 }

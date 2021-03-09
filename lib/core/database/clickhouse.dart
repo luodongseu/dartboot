@@ -9,7 +9,7 @@ import '../log/logger.dart';
 import '../retry/retry.dart';
 import 'pageable.dart';
 
-/// Clickhouse的数据库客户端
+/// ClickHouse的数据库客户端
 ///
 /// @author luodongseu
 @Bean(conditionOnProperty: 'database.clickhouse')

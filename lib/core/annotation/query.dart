@@ -5,7 +5,7 @@ part of annotation;
 /// 查询参数的注解，用于获取接口携带的查询参数
 ///
 /// example:
-/// ``` @Query('limit', required=false, defaultValue='123') ```
+/// ``` @Query('limit', required=false) ```
 ///
 /// @author luodong
 class Query {

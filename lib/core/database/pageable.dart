@@ -1,4 +1,7 @@
+import 'dart:convert';
 import 'dart:mirrors';
+
+import '../util/json.dart';
 
 /// 分页的抽象接口
 ///
@@ -24,23 +27,37 @@ abstract class Pageable<T> {
   /// [offset] = [page] * [pageSize]
   int get offset => page * pageSize;
 
+  /// 是否为空
+  bool get empty => (content ?? []).length == 0;
+
+  /// 是否为首页
+  bool get first => page == 0;
+
+  /// 是否最后一页
+  bool get last => (page + 1) * pageSize >= total;
+
   /// JSON序列化
-  Map<String, dynamic> toJson() {
+  Map<String, dynamic> toJson({bool skipEmptyAndZero = false}) {
     final List<T> contents = content ?? [];
     List<dynamic> _contents = [];
     TypeMirror typeMirror = reflectType(T);
     if (typeMirror is ClassMirror &&
         (typeMirror.instanceMembers?.containsKey(Symbol('toJson')) ?? false)) {
       _contents.addAll(contents
-          .map((c) => reflect(c).invoke(Symbol('toJson'), []).reflectee)
+          .map((c) => reflect(c).invoke(Symbol('toJson'), [],
+              {Symbol('skipEmptyAndZero'): skipEmptyAndZero}).reflectee)
           .toList());
     } else {
-      _contents.addAll(contents);
+      _contents
+          .addAll(json.decode(json.encode(contents, toEncodable: encodeJson)));
     }
     return {
       'page': page ?? 0,
       'pageSize': pageSize ?? 0,
       'total': total ?? 0,
+      'empty': empty,
+      'first': first,
+      'last': last,
       'content': _contents,
     };
   }
@@ -56,7 +73,8 @@ class PageImpl<T> extends Pageable<T> {
 
   final List<T> _content;
 
-  PageImpl(this._content, this._page, this._pageSize, this._total);
+  PageImpl(this._content,
+      [this._page = 0, this._pageSize = 0, this._total = 0]);
 
   @override
   int get page => _page ?? 0;

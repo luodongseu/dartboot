@@ -1,5 +1,7 @@
 /**
  * Error thrown by the runtime system when an custom fails.
+ *
+ * @author luodongseu
  */
 class CustomError extends Error {
   /** Message describing the error. */
@@ -9,5 +11,5 @@ class CustomError extends Error {
 
   CustomError([this.message, this.e]);
 
-  String toString() => '${message ?? 'Unknown error'} ${e}';
+  String toString() => '${message ?? 'Unknown error'} ${e ?? ''}';
 }

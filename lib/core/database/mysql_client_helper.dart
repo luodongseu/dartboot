@@ -3,7 +3,7 @@ import '../bootstrap/application_context.dart';
 import '../util/string.dart';
 import 'mysql_connection_pool.dart';
 
-/// Mysql的客户端帮助类
+/// Mysql的客户端帮助类(使用连接池管理)
 ///
 /// example:
 /// ```
@@ -20,12 +20,15 @@ class MysqlClientHelper {
   /// 连接池的集合
   Map<String, MysqlConnectionPool> _pools = Map();
 
-  MysqlClient() {
+  /// 内部key
+  static final List<String> innerKeys = ['print-sql'];
+
+  MysqlClientHelper() {
     // 初始化连接池
     _instance = this;
     dynamic mysqlConf = ApplicationContext.instance['database.mysql'];
     if (mysqlConf is Map && mysqlConf.keys.length > 0) {
-      mysqlConf.keys.forEach((k) {
+      mysqlConf.keys.where((k) => !innerKeys.contains(k)).forEach((k) {
         MysqlConnectionPool.create(mysqlConf[k]).then((p) => _pools[k] = p);
       });
     }
@@ -39,13 +42,15 @@ class MysqlClientHelper {
   /// MysqlClientHelper.getClient('dev').then();
   /// ```
   static Future<MysqlConnection2> getClient([String id]) {
+    while (null == _instance);
     assert(_instance._pools.isNotEmpty, 'No any mysql configured.');
 
     if (isEmpty(id)) {
       return _instance._pools.values.elementAt(0).getConnection();
     }
 
-    assert(_instance._pools.containsKey(id), 'Not found mysql:[$id] configuration.');
+    assert(_instance._pools.containsKey(id),
+        'Not found mysql:[$id] configuration.');
     return _instance._pools[id].getConnection();
   }
 }

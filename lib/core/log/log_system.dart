@@ -5,10 +5,10 @@ import 'dart:isolate';
 
 import 'package:logging/logging.dart';
 
-import '../bootstrap/application_context.dart';
 import '../util/date.dart';
 import '../util/string.dart';
 import 'logger.dart';
+import 'fragment.dart';
 
 /// 默认的日志文件路径
 const String defaultLogFileDir = 'logs';
@@ -26,12 +26,12 @@ class LogSystem {
 
   factory LogSystem._() => LogSystem._c();
 
-  factory LogSystem.init(String dir) {
+  factory LogSystem.init(String dir, {Level rootLevel = INFO}) {
     if (null != _instance) {
       return _instance;
     }
     _instance = LogSystem._();
-    _instance._initLog(dir);
+    _instance._initLog(dir, rootLevel);
     _instance._printBanner();
     return _instance;
   }
@@ -40,7 +40,7 @@ class LogSystem {
   ///
   /// @step1. 开启新线程，准备接收日志消息
   /// @step2. 监听Logger的日志流
-  void _initLog(String dir, {Level rootLevel = INFO}) {
+  void _initLog(String dir, Level rootLevel) {
     ReceivePort receivePort = ReceivePort();
     SendPort _sendPort;
     Completer completer = Completer();
@@ -63,16 +63,8 @@ class LogSystem {
     Isolate.spawn(_handleLog, message);
     Logger.root.level = rootLevel ?? INFO;
     Logger.root.onRecord.listen((LogRecord e) async {
-      LogFragment _log = LogFragment(
-          e.level,
-          e.message,
-          e.loggerName,
-          '${e.error ?? ''}',
-          e.stackTrace?.toString() ?? '',
-          ApplicationContext.instance['profile.active'] ?? 'default',
-          ApplicationContext.instance['server.port']);
       await completer.future;
-      _sendPort.send(_log);
+      _sendPort.send(LogFragment.fromLogRecord(e));
     });
   }
 
@@ -99,7 +91,7 @@ class LogSystem {
     // 处理目录
     Directory d = Directory(message.logDir);
     if (!d.existsSync()) {
-      d.createSync();
+      d.createSync(recursive: true);
     }
 
     // 写文件的日志队列
@@ -132,10 +124,10 @@ class LogSystem {
       }
     });
 
-    _startFileWriter(logQueue);
+    _startFileWriter(logQueue, message.logDir);
   }
 
-  static _startFileWriter(Queue<String> logQueue) async {
+  static _startFileWriter(Queue<String> logQueue, String logDir) async {
     // 日志文件缓存
     RandomAccessFile openedFile;
 
@@ -149,7 +141,8 @@ class LogSystem {
 
       // 打印日志到文件
       try {
-        String filePath = 'logs/logging.${formatDate(DateTime.now())}.log';
+        String filePath =
+            formatUrlPath('$logDir/logging.${formatDate(DateTime.now())}.log');
         if (null == openedFile || !openedFile.path.endsWith(filePath)) {
           File file = File(filePath);
           if (!file.existsSync()) {
@@ -177,53 +170,4 @@ class LogIsolateMessage {
   final String logDir;
 
   LogIsolateMessage(this.sendPort, this.logDir);
-}
-
-/// 日志片段
-class LogFragment {
-  /// Log level
-  final Level level;
-
-  /// Message to print
-  final String message;
-
-  /// StackTrace to find code quickly in error log
-  final String stackTrace;
-
-  /// Logger name, general is class name
-  final String loggerName;
-
-  /// Error message
-  final String error;
-
-  /// Active profile
-  final String profile;
-
-  /// Server port
-  final int port;
-
-  LogFragment(
-    this.level,
-    this.message,
-    this.loggerName, [
-    this.error,
-    this.stackTrace,
-    this.profile,
-    this.port,
-  ]);
-
-  @override
-  String toString() {
-    if (level == Level.OFF) {
-      return message ?? '';
-    }
-    String result =
-        '[${formatTime(DateTime.now())} :${profile ?? '--'}:${port ?? '--'}:] [${level.name}] $loggerName: $message';
-    if (isNotEmpty(error)) {
-      result += '\n';
-      result += '${error}\n';
-      result += '${stackTrace}';
-    }
-    return result;
-  }
 }

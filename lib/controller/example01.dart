@@ -1,6 +1,9 @@
+import 'package:mongo_dart_query/mongo_dart_query.dart';
+
 import '../core/annotation/annotation.dart';
 import '../core/database/mysql_pool.dart';
 import '../core/log/logger.dart';
+import '../util/database_utils.dart';
 import '../feign/feign_clients.dart';
 
 /// RestController 接口示例
@@ -43,5 +46,17 @@ class Example01Controller {
             .get('/api/v1/example03', queryParameters: {'count': c - 1}))
         .data;
     return prefValue + c;
+  }
+
+  @Api('示例：通过MySQL数据库查询数据')
+  @Get('/example04')
+  Future<int> get04() async {
+    return (await DatabaseUtils.db1()).count('select count(*) from test');
+  }
+
+  @Api('示例：通过MongoDB数据库查询数据')
+  @Get('/example05')
+  Future<int> get05() async {
+    return (await DatabaseUtils.record()).count(where.eq('fieldX', 'valueY'));
   }
 }

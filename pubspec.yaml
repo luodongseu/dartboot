@@ -8,8 +8,10 @@ environment:
 
 dependencies:
   mysql1: any
+  mongo_dart_query: any
   dio: any
   uuid: any
+  mutex: any
   analyzer: ^0.38.0
 
 dev_dependencies:

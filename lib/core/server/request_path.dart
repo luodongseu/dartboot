@@ -23,7 +23,7 @@ class PathNode {
 
 /// 请求的路径信息，包含了原始路径和路径变量
 ///
-/// @author luodongseu
+/// @author luodong
 class RequestPath {
   /// 基础路径，在controller上定义的
   ///

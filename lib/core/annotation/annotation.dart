@@ -8,7 +8,11 @@ part 'body.dart';
 
 part 'boot_context.dart';
 
+part 'column.dart';
+
 part 'delete.dart';
+
+part 'enum.dart';
 
 part 'get.dart';
 
@@ -27,3 +31,5 @@ part 'request_method.dart';
 part 'response_type.dart';
 
 part 'rest_controller.dart';
+
+part 'table.dart';

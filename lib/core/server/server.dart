@@ -4,13 +4,15 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:mirrors';
+import 'package:stack_trace/stack_trace.dart';
 
+import '../database/pageable.dart';
 import '../annotation/annotation.dart';
 import '../bootstrap/application_context.dart';
-import '../database/pageable.dart';
 import '../error/custom_error.dart';
 import '../log/logger.dart';
 import '../util/string.dart';
+import '../util/json.dart';
 
 part 'request_path.dart';
 
@@ -43,6 +45,9 @@ class Server {
   /// http服务
   HttpServer _server;
 
+  /// http服务监听器
+  StreamSubscription<HttpRequest> _serverSub;
+
   /// 动态路径映射
   List<RequestPath> _dynamicPaths = [];
 
@@ -63,6 +68,21 @@ class Server {
         ApplicationContext.instance['server.static.supportExts'] ??
             defaultSupportResourceFileExtPatterns;
     _initRouter(controllers ?? []);
+  }
+
+  /// 重载路由
+  close() {
+    // cancel
+    _serverSub?.cancel();
+    _server?.close(force: true);
+    _server = null;
+  }
+
+  /// 重载
+  reload(List<InstanceMirror> controllers) {
+    _dynamicPaths = [];
+    _staticPathMap = {};
+    _initRouter(controllers);
   }
 
   /// 初始化路由映射
@@ -152,7 +172,7 @@ class Server {
   void start() async {
     logger.info("Start to bind http server to local host...");
 
-    // 处理容器启动的参数
+    // 配置参数
     dynamic serverConfig = ApplicationContext.instance['server'];
     if (null != serverConfig) {
       if (serverConfig is Map) {
@@ -170,20 +190,28 @@ class Server {
 
     // 绑定端口并且启动服务监听
     final securityContext = _securityContext;
-    if (securityContext != null) {
-      _server = await HttpServer.bindSecure(
-          InternetAddress.anyIPv4, _port, securityContext,
-          requestClientCertificate: true, v6Only: false, shared: false);
-    } else {
-      _server = await HttpServer.bind(InternetAddress.anyIPv4, _port,
-          v6Only: false, shared: false);
+    try {
+      if (securityContext != null) {
+        _server = await HttpServer.bindSecure(
+            InternetAddress.anyIPv4, _port, securityContext,
+            requestClientCertificate: true, v6Only: false, shared: false);
+      } else {
+        _server = await HttpServer.bind(InternetAddress.anyIPv4, _port,
+            v6Only: false, shared: false);
+      }
+    } catch (e) {
+      logger.error('Server started failed.', e, StackTrace.current);
+      Future.delayed(Duration(milliseconds: 100), () {
+        exit(-1);
+      });
+      return;
     }
 
     // // handle errors to response 500 or 404
-    _server.listen((request) =>
+    _serverSub = _server.listen((request) =>
         runZoned(() => _receiveRequest(request), onError: (e) async {
           logger.error(
-              'Request [${request.method} ${request.uri.path}] failed.',
+              'Request [${request.method} ${request.uri.path}] failed. ${StackTrace.current}',
               e is Error ? e.toString() : e,
               e is Error ? e.stackTrace : null);
           try {
@@ -191,7 +219,7 @@ class Server {
           } catch (e) {
             // ignore e
           }
-        }));
+        }, zoneValues: _headerValues(request)));
 
     // // not handle any error
     // _server.listen((request) => _receiveRequest(request));
@@ -285,6 +313,14 @@ class Server {
       }
     }
 
+    // 注入请求头
+    Map<String, Object> headers = {};
+    request.headers.forEach((k, s) {
+      if (s?.isNotEmpty ?? false) {
+        headers[k] = s[0];
+      }
+    });
+
     // 处理参数
     List<dynamic> params = List();
     for (ParameterMirror p in backendPath.methodMirror.parameters) {
@@ -358,23 +394,42 @@ class Server {
     int start = DateTime.now().millisecondsSinceEpoch;
     logger.debug('Start to invoke api:[$reqPath]\'s controller function...');
 
-    // 反射接口函数
-    dynamic data = backendPath.controllerMirror
-        .invoke(backendPath.methodMirror.simpleName, params)
-        .reflectee;
-    var result;
-    if (data is Future) {
-      result = await data;
-    } else {
-      result = data;
-    }
+    // 指定上下文，将headers加入上下文中
+    runZoned(() async {
+      Chain.capture(() async {
+        // 反射接口函数
+        var data = backendPath.controllerMirror
+            .invoke(backendPath.methodMirror.simpleName, params)
+            .reflectee;
+        var result;
+        if (data is Future) {
+          result = await data;
+        } else {
+          result = data;
+        }
+        // 结束时间
+        int end = DateTime.now().millisecondsSinceEpoch;
+        logger.info(
+            'Api:[$reqPath]\'s controller function invoked sucessfuly in [${end - start}] mills.');
 
-    // 结束时间
-    int end = DateTime.now().millisecondsSinceEpoch;
-    logger.debug(
-        'Api:[$reqPath]\'s controller function invoked sucessfuly in [${end - start}] mills.');
+        _sendResponse(request, backendPath, result);
+      }, onError: (d, e) {
+        logger.error(d, e, StackTrace.current);
+        if (d is AssertionError) {
+          throw CustomError(d.message);
+        }
+        throw CustomError(d);
+      });
+    }, zoneValues: headers);
+  }
 
-    _sendResponse(request, backendPath, result);
+  /// 获取Request的头部消息
+  _headerValues(HttpRequest request) {
+    var values = {};
+    request.headers.forEach((k, v) {
+      values[k] = v;
+    });
+    return values;
   }
 
   /// 解析参数类型
@@ -397,7 +452,7 @@ class Server {
       case 'List':
         return isEmpty(value) ? defaultValue : value.split(',');
     }
-    return value;
+    return isEmpty(value) ? defaultValue : value;
   }
 
   /// 响应404
@@ -443,8 +498,19 @@ class Server {
       case ResponseType.json:
       default:
         contentType = 'application/json';
-        body = jsonEncode(data is Pageable ? data.toJson() : (data ?? {}),
-            toEncodable: (o) => o is DateTime ? o.millisecondsSinceEpoch : o);
+        // 基础类型
+        if (data is num || data is bool || data is DateTime) {
+          body = '$data';
+        } else if (data is String) {
+          body = data;
+        } else if (null != data) {
+          // json
+          var _data = data;
+          if (_data is PageImpl) {
+            _data = _data.toJson();
+          }
+          body = jsonEncode(_data, toEncodable: encodeJson);
+        }
         break;
     }
     request.response.headers
@@ -458,7 +524,8 @@ class Server {
     String path = '${request.uri?.path}';
     if (_supportResourceFileExtPatterns
         .any((p) => RegExp('.*$p').hasMatch(path))) {
-      File iconFile = File(formatUrlPath('resource/static/$path'));
+      File iconFile = File(formatUrlPath(
+          '${ApplicationContext.instance.rootPath}/resource/static/$path'));
       if (iconFile.existsSync()) {
         request.response.headers.contentType = ContentType.binary;
         try {

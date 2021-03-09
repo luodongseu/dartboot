@@ -1,7 +1,7 @@
 import 'package:logging/logging.dart';
 
 /// 定义的LEVEL
-const Level DEBUG = Level('DEBUG', 300);
+const Level DEBUG = Level('DEBUG', 700);
 const Level INFO = Level.INFO;
 const Level WARNING = Level('WARNING', 900);
 const Level ERROR = Level('ERROR', 1000);
