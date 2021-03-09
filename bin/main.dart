@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
-import '../lib/core/dartboot.dart';
+import 'package:dartboot/core/dartboot.dart';
 
 /// 应用的真正运行入口:
 ///   `dart bin/main.dart`
